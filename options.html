@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #f8f9fa;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        h1 {
+            color: #1a73e8;
+            margin: 0 0 30px 0;
+            font-size: 28px;
+            font-weight: 500;
+            text-align: center;
+        }
+
+        h3 {
+            color: #1a73e8;
+            margin: 0 0 20px 0;
+            font-size: 18px;
+            font-weight: 500;
+        }
+
+        select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            background: white;
+            font-size: 14px;
+            color: #333;
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
+            outline: none;
+        }
+
+        select:focus {
+            border-color: #1a73e8;
+            box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.1);
+        }
+
+        .checkbox-container {
+            margin: 15px 0;
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin-right: 10px;
+            accent-color: #1a73e8;
+        }
+
+        label {
+            font-size: 14px;
+            color: #444;
+            user-select: none;
+        }
+
+        button {
+            width: 100%;
+            padding: 14px;
+            background: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 20px;
+        }
+
+        button:hover {
+            background: #1557b0;
+            box-shadow: 0 2px 6px rgba(26, 115, 232, 0.3);
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+
+        input[type="color"] {
+            width: 100%;
+            height: 40px;
+            padding: 0;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+
+        #rulesList {
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+        }
+
+        .rule-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            margin-bottom: 8px;
+        }
+
+        .rule-item button {
+            width: auto;
+            padding: 8px 16px;
+            margin: 0;
+            background: #dc3545;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>标签组管理设置</h1>
+    <div class="container">
+        <div class="card">
+            <h3>创建新标签组</h3>
+            <div>
+                <input type="text" id="newGroupTitle" placeholder="输入标签组名称">
+                <input type="color" id="newGroupColor" value="#1a73e8">
+                <button id="createGroupButton">创建标签组</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>选择默认标签组</h3>
+            <select id="groupSelect">
+                <option value="">加载中...</option>
+            </select>
+            <div class="checkbox-container">
+                <input type="checkbox" id="ignorePopup">
+                <label for="ignorePopup">不将独立窗口的标签页加入标签组</label>
+            </div>
+            <button id="saveButton">保存设置</button>
+        </div>
+
+        <div class="card">
+            <h3>URL规则配置</h3>
+            <div>
+                <input type="text" id="urlPattern" placeholder="输入URL规则 (例如: *github.com*)">
+                <select id="ruleGroupSelect">
+                    <option value="">选择标签组...</option>
+                </select>
+                <button id="addRuleButton">添加规则</button>
+            </div>
+            <div id="rulesList">
+                <!-- 规则列表将在这里动态生成 -->
+            </div>
+            <button id="applyRulesButton" style="background: #4CAF50;">应用规则到所有标签页</button>
+            <button id="exportButton" style="background: #FF9800; margin-top: 10px;">导出配置</button>
+            <button id="importButton" style="background: #FF9800; margin-top: 10px;">导入配置</button>
+        </div>
+
+    </div>
+    </div>
+    </div>
+    <script src="options.js"></script>
+</body>
+
+</html>

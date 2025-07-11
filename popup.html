@@ -5,8 +5,8 @@
     <meta charset="UTF-8">
     <style>
         body {
-            width: 320px;
-            padding: 20px;
+            width: 400px;
+            padding: 25px;
             font-family: 'Segoe UI', system-ui, sans-serif;
             background: #f8f9fa;
             margin: 0;
@@ -21,14 +21,14 @@
 
         select {
             width: 100%;
-            padding: 10px;
+            padding: 12px;
             border: 2px solid #e0e0e0;
             border-radius: 8px;
             background: white;
             font-size: 14px;
             color: #333;
             transition: all 0.3s ease;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
             outline: none;
         }
 
@@ -62,16 +62,16 @@
 
         button {
             width: 100%;
-            padding: 12px;
+            padding: 14px;
             background: #1a73e8;
             color: white;
             border: none;
             border-radius: 8px;
-            font-size: 14px;
+            font-size: 15px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.3s ease;
-            margin-top: 15px;
+            margin-top: 20px;
         }
 
         button:hover {
@@ -87,13 +87,24 @@
         .card {
             background: white;
             border-radius: 12px;
-            padding: 20px;
+            padding: 25px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            margin-bottom: 25px;
         }
     </style>
 </head>
 
 <body>
+    <div class="card">
+        <h3>创建新标签组</h3>
+        <div style="margin-bottom: 15px;">
+            <input type="text" id="newGroupTitle" placeholder="输入标签组名称"
+                style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; margin-bottom: 10px;">
+            <input type="color" id="newGroupColor" value="#1a73e8"
+                style="width: 100%; height: 40px; padding: 0; border: 2px solid #e0e0e0; border-radius: 8px; margin-bottom: 10px; cursor: pointer;">
+            <button id="createGroupButton" style="margin-top: 0;">创建标签组</button>
+        </div>
+    </div>
     <div class="card">
         <h3>选择默认标签组</h3>
         <select id="groupSelect">
@@ -104,6 +115,21 @@
             <label for="ignorePopup">不将独立窗口的标签页加入标签组</label>
         </div>
         <button id="saveButton">保存设置</button>
+    </div>
+    <div class="card">
+        <h3>URL规则配置</h3>
+        <div style="margin-bottom: 15px;">
+            <input type="text" id="urlPattern" placeholder="输入URL规则 (例如: *github.com*)"
+                style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; margin-bottom: 10px;">
+            <select id="ruleGroupSelect" style="margin-bottom: 10px;">
+                <option value="">选择标签组...</option>
+            </select>
+            <button id="addRuleButton" style="margin-top: 0;">添加规则</button>
+        </div>
+        <div id="rulesList" style="max-height: 200px; overflow-y: auto;">
+            <!-- 规则列表将在这里动态生成 -->
+        </div>
+        <button id="applyRulesButton" style="margin-top: 15px; background: #4CAF50;">应用规则到所有标签页</button>
     </div>
     <script src="popup.js"></script>
 </body>
