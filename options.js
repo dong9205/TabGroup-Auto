@@ -252,13 +252,15 @@ async function importConfig() {
 async function applyRulesToAllTabs() {
     const { urlRules = [] } = await chrome.storage.local.get(['urlRules']);
     const tabs = await chrome.tabs.query({});
+    const forceMove = document.getElementById('forceMove').checked;
     let updatedCount = 0;
 
     for (const tab of tabs) {
         for (const rule of urlRules) {
             if (matchesPattern(tab.url, rule.pattern)) {
                 try {
-                    if (!tab.groupId) {
+                    // 根据forceMove设置决定是否处理已分组的标签页
+                    if (forceMove || !tab.groupId) {
                         await chrome.tabs.group({
                             tabIds: tab.id,
                             groupId: parseInt(rule.groupId)

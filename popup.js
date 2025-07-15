@@ -181,13 +181,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.applyRule = async (index) => {
     const rule = rules[index];
     const allTabs = await chrome.tabs.query({});
+    const forceMove = document.getElementById('forceMove').checked;
     const pattern = rule.pattern
       .replace(/\./g, '\\.')
       .replace(/\*/g, '.*');
     const regex = new RegExp(pattern);
 
     for (const tab of allTabs) {
-      if (tab.groupId !== -1) continue;
+      // 根据forceMove设置决定是否跳过已分组的标签页
+      if (!forceMove && tab.groupId !== -1) continue;
       if (regex.test(tab.url)) {
         try {
           await chrome.tabs.group({
@@ -259,6 +261,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   applyRulesButton.addEventListener('click', async () => {
     const allTabs = await chrome.tabs.query({});
     const { urlRules } = await chrome.storage.local.get(['urlRules']);
+    const forceMove = document.getElementById('forceMove').checked;
 
     if (!urlRules || !urlRules.length) {
       alert('没有配置URL规则');
@@ -266,8 +269,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     for (const tab of allTabs) {
-      // 跳过已经在组中的标签页
-      if (tab.groupId !== -1) continue;
+      // 根据forceMove设置决定是否跳过已分组的标签页
+      if (!forceMove && tab.groupId !== -1) continue;
 
       // 检查URL是否匹配规则
       for (const rule of urlRules) {
