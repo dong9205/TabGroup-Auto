@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "TabGroup Auto",
-    "version": "1.0",
+    "version": "2.0",
     "description": "智能标签组管理助手 - 自动将新标签页归类到指定标签组，让您的浏览更有条理",
     "author": "derrick",
     "permissions": [
