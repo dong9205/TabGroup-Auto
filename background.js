@@ -12,10 +12,9 @@ async function handleTabGrouping(tab) {
         const isPopupWindow = window.type !== 'normal';
 
         // 获取设置
-        const { defaultGroupId, ignorePopupWindows } = await chrome.storage.local.get(['defaultGroupId', 'ignorePopupWindows']);
+        const { defaultGroupId } = await chrome.storage.local.get(['defaultGroupId']);
 
-        // 如果设置为忽略独立窗口，且检测到是独立窗口，则不进行分组
-        if (ignorePopupWindows && isPopupWindow) {
+        if (isPopupWindow) {
             console.log('检测到独立窗口，跳过分组');
             return;
         }
