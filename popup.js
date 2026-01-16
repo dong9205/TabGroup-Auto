@@ -41,17 +41,71 @@ document.addEventListener('DOMContentLoaded', async () => {
   await updateGroupLists();
 
   // 加载已保存的设置
-  const { defaultGroupId, ignorePopupWindows, urlRules } =
-    await chrome.storage.local.get(['defaultGroupId', 'ignorePopupWindows', 'urlRules']);
+  const { defaultGroupId, defaultGroupTitle, ignorePopupWindows, urlRules } =
+    await chrome.storage.local.get(['defaultGroupId', 'defaultGroupTitle', 'ignorePopupWindows', 'urlRules']);
 
-  if (defaultGroupId) {
-    groupSelect.value = defaultGroupId;
+  let resolvedGroupId = defaultGroupId;
+  if (resolvedGroupId) {
+    const groupExists = groups.some(group => group.id === resolvedGroupId);
+    if (!groupExists) {
+      resolvedGroupId = null;
+    }
+  }
+
+  if (!resolvedGroupId && defaultGroupTitle) {
+    const matchedGroup = groups.find(group => group.title === defaultGroupTitle);
+    if (matchedGroup) {
+      resolvedGroupId = matchedGroup.id;
+      await chrome.storage.local.set({ defaultGroupId: resolvedGroupId });
+    }
+  }
+
+  if (resolvedGroupId) {
+    groupSelect.value = resolvedGroupId;
   }
   ignorePopup.checked = ignorePopupWindows || false;
 
+
   // 显示已保存的URL规则
   let rules = urlRules || [];
+
+  function reconcileRuleGroup(rule) {
+    let groupId = rule.groupId ? parseInt(rule.groupId) : null;
+    let matchedGroup = groupId ? groups.find(group => group.id === groupId) : null;
+
+    if (matchedGroup) {
+      const title = matchedGroup.title || '';
+      if (rule.groupTitle !== title) {
+        rule.groupTitle = title;
+        return true;
+      }
+      return false;
+    }
+
+    if (rule.groupTitle) {
+      matchedGroup = groups.find(group => (group.title || '') === rule.groupTitle);
+      if (matchedGroup) {
+        rule.groupId = matchedGroup.id;
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  let rulesUpdated = false;
+  rules.forEach(rule => {
+    if (reconcileRuleGroup(rule)) {
+      rulesUpdated = true;
+    }
+  });
+
+  if (rulesUpdated) {
+    await chrome.storage.local.set({ urlRules: rules });
+  }
+
   function renderRules() {
+
     rulesList.innerHTML = '';
 
     // 按标签组ID对规则进行分组
@@ -213,8 +267,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    rules.push({ pattern, groupId });
+    const selectedGroup = groups.find(group => group.id === groupId);
+    rules.push({
+      pattern,
+      groupId,
+      groupTitle: selectedGroup ? selectedGroup.title || '' : ''
+    });
     await chrome.storage.local.set({ urlRules: rules });
+
 
     // 清空输入
     urlPattern.value = '';
@@ -297,12 +357,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 保存设置
   saveButton.addEventListener('click', async () => {
     const selectedGroupId = parseInt(groupSelect.value);
+    const selectedGroup = groups.find(group => group.id === selectedGroupId);
     await chrome.storage.local.set({
       defaultGroupId: selectedGroupId,
+      defaultGroupTitle: selectedGroup ? selectedGroup.title || '' : '',
       ignorePopupWindows: ignorePopup.checked
     });
     window.close();
   });
+
 
   // 将十六进制颜色转换为Chrome标签组支持的颜色名称
   function colorNameFromHex(hex) {
