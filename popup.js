@@ -131,22 +131,30 @@ document.addEventListener('DOMContentLoaded', async () => {
         groupRules.forEach((rule, index) => {
           const ruleItem = document.createElement('div');
           ruleItem.className = 'rule-item';
+          const ruleIndex = rules.indexOf(rule);
+          const autoMoveChecked = rule.autoMove ? 'checked' : '';
           ruleItem.innerHTML = `
-            <div style="margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
-              <div style="font-weight: 500; flex-grow: 1;">${rule.pattern}</div>
-              <div style="display: flex; gap: 5px;">
-                <button class="apply-rule" data-index="${rules.indexOf(rule)}" 
-                  style="width: 40px; margin: 0; padding: 3px; background: #4CAF50;">
-                  应用
-                </button>
-                <button class="edit-rule" data-index="${rules.indexOf(rule)}" 
-                  style="width: 40px; margin: 0; padding: 3px; background: #1a73e8;">
-                  编辑
-                </button>
-                <button class="delete-rule" data-index="${rules.indexOf(rule)}" 
-                  style="width: 40px; margin: 0; padding: 3px; background: #dc3545;">
-                  删除
-                </button>
+            <div style="margin-bottom: 10px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px;">
+                <div style="font-weight: 500; flex-grow: 1;">${rule.pattern}</div>
+                <div style="display: flex; gap: 5px;">
+                  <button class="apply-rule" data-index="${ruleIndex}" 
+                    style="width: 40px; margin: 0; padding: 3px; background: #4CAF50;">
+                    应用
+                  </button>
+                  <button class="edit-rule" data-index="${ruleIndex}" 
+                    style="width: 40px; margin: 0; padding: 3px; background: #1a73e8;">
+                    编辑
+                  </button>
+                  <button class="delete-rule" data-index="${ruleIndex}" 
+                    style="width: 40px; margin: 0; padding: 3px; background: #dc3545;">
+                    删除
+                  </button>
+                </div>
+              </div>
+              <div class="checkbox-container" style="margin: 0; padding: 5px 10px;">
+                <input type="checkbox" class="rule-auto-move" data-rule-index="${ruleIndex}" ${autoMoveChecked}>
+                <label style="font-size: 12px; margin: 0;">默认自动移动到标签组</label>
               </div>
             </div>
           `;
@@ -168,22 +176,28 @@ document.addEventListener('DOMContentLoaded', async () => {
       unknownGroupRules.forEach((rule, index) => {
         const ruleItem = document.createElement('div');
         ruleItem.className = 'rule-item';
+        const ruleIndex = rules.indexOf(rule);
+        const autoMoveChecked = rule.autoMove ? 'checked' : '';
         ruleItem.innerHTML = `
           <div style="margin-bottom: 10px;">
-            <div style="font-weight: 500;">${rule.pattern}</div>
-            <div style="display: flex; gap: 5px; margin-top: 5px;">
-              <button class="apply-rule" data-index="${rules.indexOf(rule)}" 
+            <div style="font-weight: 500; margin-bottom: 5px;">${rule.pattern}</div>
+            <div style="display: flex; gap: 5px; margin-bottom: 5px;">
+              <button class="apply-rule" data-index="${ruleIndex}" 
                 style="min-width: 60px; margin: 0; padding: 5px; background: #4CAF50;">
                 应用
               </button>
-              <button class="edit-rule" data-index="${rules.indexOf(rule)}" 
+              <button class="edit-rule" data-index="${ruleIndex}" 
                 style="min-width: 60px; margin: 0; padding: 5px; background: #1a73e8;">
                 编辑
               </button>
-              <button class="delete-rule" data-index="${rules.indexOf(rule)}" 
+              <button class="delete-rule" data-index="${ruleIndex}" 
                 style="min-width: 60px; margin: 0; padding: 5px; background: #dc3545;">
                 删除
               </button>
+            </div>
+            <div class="checkbox-container" style="margin: 0; padding: 5px 10px;">
+              <input type="checkbox" class="rule-auto-move" data-rule-index="${ruleIndex}" ${autoMoveChecked}>
+              <label style="font-size: 12px; margin: 0;">默认自动移动到标签组</label>
             </div>
           </div>
         `;
@@ -202,15 +216,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       button.addEventListener('click', () => deleteRule(parseInt(button.dataset.index)));
     });
 
-    // 添加按钮事件监听器
-    rulesList.querySelectorAll('.apply-rule').forEach(button => {
-      button.addEventListener('click', () => applyRule(parseInt(button.dataset.index)));
-    });
-    rulesList.querySelectorAll('.edit-rule').forEach(button => {
-      button.addEventListener('click', () => editRule(parseInt(button.dataset.index)));
-    });
-    rulesList.querySelectorAll('.delete-rule').forEach(button => {
-      button.addEventListener('click', () => deleteRule(parseInt(button.dataset.index)));
+    // 为所有勾选框添加事件监听器
+    rulesList.querySelectorAll('.rule-auto-move').forEach(checkbox => {
+      checkbox.addEventListener('change', async (e) => {
+        const ruleIndex = parseInt(e.target.dataset.ruleIndex);
+        if (rules[ruleIndex]) {
+          rules[ruleIndex].autoMove = e.target.checked;
+          await chrome.storage.local.set({ urlRules: rules });
+        }
+      });
     });
   }
   renderRules();
@@ -260,15 +274,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
-    // 如果移动了标签页，检查是否需要排序
+    // 如果移动了标签页，检查是否需要排序（按标题匹配配置，重启后仍有效）
     if (hasMovedTabs) {
       try {
         const { groupSortSettings = {}, sortMethod = 'domain' } = await chrome.storage.local.get(['groupSortSettings', 'sortMethod']);
-        const groupIdKey = String(groupId);
-        const groupSettings = groupSortSettings[groupIdKey] || groupSortSettings[groupId];
+        const group = groups.find(g => g.id === groupId);
+        const titleKey = group ? (group.title || '未命名标签组') : '';
+        const groupSettings = titleKey ? (groupSortSettings[titleKey] || groupSortSettings[String(groupId)] || groupSortSettings[groupId]) : (groupSortSettings[String(groupId)] || groupSortSettings[groupId]);
         if (groupSettings && groupSettings.autoSort) {
           const method = groupSettings.sortMethod || sortMethod;
-          // 延迟一下确保标签页已加入分组
           setTimeout(async () => {
             await chrome.runtime.sendMessage({
               action: 'sortGroup',
@@ -287,6 +301,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   addRuleButton.addEventListener('click', async () => {
     const pattern = urlPattern.value.trim();
     const groupId = parseInt(ruleGroupSelect.value);
+    const ruleAutoMove = document.getElementById('ruleAutoMove');
 
     if (!pattern || !groupId) {
       alert('请输入URL规则并选择标签组');
@@ -297,14 +312,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     rules.push({
       pattern,
       groupId,
-      groupTitle: selectedGroup ? selectedGroup.title || '' : ''
+      groupTitle: selectedGroup ? selectedGroup.title || '' : '',
+      autoMove: ruleAutoMove ? ruleAutoMove.checked : false
     });
     await chrome.storage.local.set({ urlRules: rules });
-
 
     // 清空输入
     urlPattern.value = '';
     ruleGroupSelect.value = '';
+    if (ruleAutoMove) ruleAutoMove.checked = false;
 
     // 重新渲染规则列表
     renderRules();
@@ -383,14 +399,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
-    // 对移动了标签页的分组进行排序
+    // 对移动了标签页的分组进行排序（按标题匹配配置，重启后仍有效）
     if (groupsWithMovedTabs.size > 0) {
       try {
         const { groupSortSettings = {}, sortMethod = 'domain' } = await chrome.storage.local.get(['groupSortSettings', 'sortMethod']);
         setTimeout(async () => {
           for (const groupId of groupsWithMovedTabs) {
-            const groupIdKey = String(groupId);
-            const groupSettings = groupSortSettings[groupIdKey] || groupSortSettings[groupId];
+            const group = groups.find(g => g.id === groupId);
+            const titleKey = group ? (group.title || '未命名标签组') : '';
+            const groupSettings = titleKey ? (groupSortSettings[titleKey] || groupSortSettings[String(groupId)] || groupSortSettings[groupId]) : (groupSortSettings[String(groupId)] || groupSortSettings[groupId]);
             if (groupSettings && groupSettings.autoSort) {
               const method = groupSettings.sortMethod || sortMethod;
               await chrome.runtime.sendMessage({

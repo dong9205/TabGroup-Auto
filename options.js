@@ -84,7 +84,7 @@ function updateGroupSortList(groups) {
     loadGroupSortSettings();
 }
 
-// 加载分组排序配置
+// 加载分组排序配置（按标题匹配，重启后仍有效；同 ID 键兼容旧数据）
 async function loadGroupSortSettings() {
     const { groupSortSettings = {}, sortMethod = 'domain' } = await chrome.storage.local.get(['groupSortSettings', 'sortMethod']);
     
@@ -94,12 +94,12 @@ async function loadGroupSortSettings() {
         sortMethodSelect.value = sortMethod;
     }
     
-    // 为每个分组加载配置
+    const defaultSort = sortMethod || 'domain';
     currentGroups.forEach(group => {
         const groupId = group.id;
+        const titleKey = group.title || '未命名标签组';
         const groupIdKey = String(groupId);
-        // 尝试两种键格式（字符串和数字），以兼容旧数据
-        const settings = groupSortSettings[groupIdKey] || groupSortSettings[groupId] || { autoSort: false, sortMethod: sortMethod || 'domain' };
+        const settings = groupSortSettings[titleKey] || groupSortSettings[groupIdKey] || groupSortSettings[groupId] || { autoSort: false, sortMethod: defaultSort };
         
         const checkbox = document.querySelector(`.group-auto-sort[data-group-id="${groupId}"]`);
         const select = document.querySelector(`.group-sort-method[data-group-id="${groupId}"]`);
@@ -108,12 +108,12 @@ async function loadGroupSortSettings() {
             checkbox.checked = settings.autoSort || false;
         }
         if (select) {
-            select.value = settings.sortMethod || sortMethod || 'domain';
+            select.value = settings.sortMethod || defaultSort;
         }
     });
 }
 
-// 保存分组排序配置
+// 保存分组排序配置（按分组标题存储，浏览器重启后仍可恢复）
 async function saveGroupSortSettings() {
     const groupSortSettings = {};
     
@@ -123,9 +123,8 @@ async function saveGroupSortSettings() {
         const select = document.querySelector(`.group-sort-method[data-group-id="${groupId}"]`);
         
         if (checkbox && select) {
-            // 使用字符串作为键，确保类型一致
-            const groupIdKey = String(groupId);
-            groupSortSettings[groupIdKey] = {
+            const titleKey = group.title || '未命名标签组';
+            groupSortSettings[titleKey] = {
                 autoSort: checkbox.checked,
                 sortMethod: select.value
             };
@@ -136,11 +135,13 @@ async function saveGroupSortSettings() {
     showNotification('排序配置已保存');
 }
 
-// 加载设置
+// 加载设置（支持 defaultGroupId / defaultGroupTitle，重启后按标题恢复）
 async function loadSettings() {
-    const settings = await chrome.storage.local.get(['defaultGroupTitle', 'ignorePopup', 'sortMethod']);
-    if (settings.defaultGroupTitle) {
-        // 根据 title 查找 groupId
+    const settings = await chrome.storage.local.get(['defaultGroupId', 'defaultGroupTitle', 'ignorePopup', 'sortMethod']);
+    const hasGroupById = settings.defaultGroupId != null && currentGroups.some(g => g.id == settings.defaultGroupId);
+    if (hasGroupById) {
+        groupSelect.value = settings.defaultGroupId;
+    } else if (settings.defaultGroupTitle) {
         const group = currentGroups.find(g => (g.title || '未命名标签组') === settings.defaultGroupTitle);
         if (group) {
             groupSelect.value = group.id;
@@ -148,23 +149,26 @@ async function loadSettings() {
     }
     ignorePopup.checked = settings.ignorePopup || false;
     
-    // 加载默认排序方式
     const sortMethodSelect = document.getElementById('sortMethod');
     if (sortMethodSelect && settings.sortMethod) {
         sortMethodSelect.value = settings.sortMethod;
     }
 }
 
-// 保存设置
+// 保存设置（同时存 defaultGroupId 与 defaultGroupTitle，重启后后台按标题解析）
 async function saveSettings() {
-    // 保存选中的 group 的 title
+    let defaultGroupId = null;
     let defaultGroupTitle = '';
     if (groupSelect.value) {
         const group = currentGroups.find(g => g.id == groupSelect.value);
-        defaultGroupTitle = group ? (group.title || '未命名标签组') : '';
+        if (group) {
+            defaultGroupId = group.id;
+            defaultGroupTitle = group.title || '未命名标签组';
+        }
     }
     const sortMethodSelect = document.getElementById('sortMethod');
     const settings = {
+        defaultGroupId,
         defaultGroupTitle,
         ignorePopup: ignorePopup.checked,
         sortMethod: sortMethodSelect ? sortMethodSelect.value : 'domain'
@@ -200,9 +204,22 @@ async function createGroup() {
     }
 }
 
-// 加载URL规则
+// 加载URL规则（为缺少 groupTitle 的旧规则按当前组补全，便于重启后后台按标题解析）
 async function loadRules() {
     const { urlRules = [] } = await chrome.storage.local.get(['urlRules']);
+    let changed = false;
+    for (const rule of urlRules) {
+        if (!rule.groupTitle && (rule.groupId != null || rule.groupId !== '')) {
+            const g = currentGroups.find(c => c.id == rule.groupId || c.id === parseInt(rule.groupId));
+            if (g) {
+                rule.groupTitle = g.title || '未命名标签组';
+                changed = true;
+            }
+        }
+    }
+    if (changed) {
+        await chrome.storage.local.set({ urlRules });
+    }
     updateRulesList(urlRules);
 }
 
@@ -233,9 +250,14 @@ function updateRulesList(rules) {
             groupRules.forEach((rule, index) => {
                 const ruleItem = document.createElement('div');
                 ruleItem.className = 'rule-item';
+                const ruleIndex = rules.indexOf(rule);
+                const autoMoveChecked = rule.autoMove ? 'checked' : '';
                 ruleItem.innerHTML = `
-                    <span>${rule.pattern}</span>
-                    <button onclick="deleteRule(${rules.indexOf(rule)})">删除</button>
+                    <div style="display: flex; align-items: center; flex: 1;">
+                        <input type="checkbox" class="rule-auto-move" data-rule-index="${ruleIndex}" ${autoMoveChecked} style="margin-right: 10px;">
+                        <span>${rule.pattern}</span>
+                    </div>
+                    <button onclick="deleteRule(${ruleIndex})">删除</button>
                 `;
                 rulesList.appendChild(ruleItem);
             });
@@ -255,13 +277,30 @@ function updateRulesList(rules) {
         unknownGroupRules.forEach((rule, index) => {
             const ruleItem = document.createElement('div');
             ruleItem.className = 'rule-item';
+            const ruleIndex = rules.indexOf(rule);
+            const autoMoveChecked = rule.autoMove ? 'checked' : '';
             ruleItem.innerHTML = `
-                <span>${rule.pattern}</span>
-                <button onclick="deleteRule(${rules.indexOf(rule)})">删除</button>
+                <div style="display: flex; align-items: center; flex: 1;">
+                    <input type="checkbox" class="rule-auto-move" data-rule-index="${ruleIndex}" ${autoMoveChecked} style="margin-right: 10px;">
+                    <span>${rule.pattern}</span>
+                </div>
+                <button onclick="deleteRule(${ruleIndex})">删除</button>
             `;
             rulesList.appendChild(ruleItem);
         });
     }
+
+    // 为所有勾选框添加事件监听器
+    rulesList.querySelectorAll('.rule-auto-move').forEach(checkbox => {
+        checkbox.addEventListener('change', async (e) => {
+            const ruleIndex = parseInt(e.target.dataset.ruleIndex);
+            const { urlRules = [] } = await chrome.storage.local.get(['urlRules']);
+            if (urlRules[ruleIndex]) {
+                urlRules[ruleIndex].autoMove = e.target.checked;
+                await chrome.storage.local.set({ urlRules });
+            }
+        });
+    });
 }
 
 // 获取标签组标题
@@ -278,15 +317,20 @@ async function addRule() {
     }
 
     const { urlRules = [] } = await chrome.storage.local.get(['urlRules']);
+    const ruleAutoMove = document.getElementById('ruleAutoMove');
+    const selectedGroup = currentGroups.find(g => g.id == ruleGroupSelect.value);
     urlRules.push({
         pattern: urlPattern.value,
-        groupId: ruleGroupSelect.value
+        groupId: ruleGroupSelect.value,
+        groupTitle: selectedGroup ? (selectedGroup.title || '未命名标签组') : '',
+        autoMove: ruleAutoMove ? ruleAutoMove.checked : false
     });
 
     await chrome.storage.local.set({ urlRules });
     updateRulesList(urlRules);
     urlPattern.value = '';
     ruleGroupSelect.value = '';
+    if (ruleAutoMove) ruleAutoMove.checked = false;
     showNotification('规则添加成功');
 }
 
@@ -345,6 +389,17 @@ async function importConfig() {
     input.click();
 }
 
+// 根据 rule.groupId 或 rule.groupTitle 解析出当前有效的标签组 ID（重启后仍有效）
+function resolveRuleGroupId(rule) {
+    const gById = currentGroups.find(g => g.id == rule.groupId || g.id === parseInt(rule.groupId));
+    if (gById) return gById.id;
+    if (rule.groupTitle) {
+        const gByTitle = currentGroups.find(g => (g.title || '未命名标签组') === rule.groupTitle);
+        if (gByTitle) return gByTitle.id;
+    }
+    return null;
+}
+
 // 应用规则到所有标签页
 async function applyRulesToAllTabs() {
     const { urlRules = [] } = await chrome.storage.local.get(['urlRules']);
@@ -357,9 +412,9 @@ async function applyRulesToAllTabs() {
         for (const rule of urlRules) {
             if (matchesPattern(tab.url, rule.pattern)) {
                 try {
-                    // 根据forceMove设置决定是否处理已分组的标签页
                     if (forceMove || !tab.groupId) {
-                        const groupId = parseInt(rule.groupId);
+                        const groupId = resolveRuleGroupId(rule);
+                        if (groupId == null) continue;
                         await chrome.tabs.group({
                             tabIds: tab.id,
                             groupId: groupId
@@ -375,14 +430,15 @@ async function applyRulesToAllTabs() {
         }
     }
 
-    // 对移动了标签页的分组进行排序
+    // 对移动了标签页的分组进行排序（按标题匹配配置，重启后仍有效）
     if (groupsWithMovedTabs.size > 0) {
         try {
             const { groupSortSettings = {}, sortMethod = 'domain' } = await chrome.storage.local.get(['groupSortSettings', 'sortMethod']);
             setTimeout(async () => {
                 for (const groupId of groupsWithMovedTabs) {
-                    const groupIdKey = String(groupId);
-                    const groupSettings = groupSortSettings[groupIdKey] || groupSortSettings[groupId];
+                    const group = currentGroups.find(g => g.id === groupId || g.id === parseInt(groupId));
+                    const titleKey = group ? (group.title || '未命名标签组') : '';
+                    const groupSettings = titleKey ? (groupSortSettings[titleKey] || groupSortSettings[String(groupId)] || groupSortSettings[groupId]) : (groupSortSettings[String(groupId)] || groupSortSettings[groupId]);
                     if (groupSettings && groupSettings.autoSort) {
                         const method = groupSettings.sortMethod || sortMethod;
                         await chrome.runtime.sendMessage({

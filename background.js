@@ -116,6 +116,36 @@ async function sortTabsInGroup(groupId, sortMethod) {
     }
 }
 
+// 根据 ID 或标题解析出当前有效的标签组 ID（重启后仍有效）
+async function resolveGroupId(groupId, groupTitle) {
+    if (groupId != null && groupId !== '') {
+        try {
+            await chrome.tabGroups.get(parseInt(groupId));
+            return parseInt(groupId);
+        } catch (e) {}
+    }
+    if (groupTitle != null && groupTitle !== '') {
+        const groups = await chrome.tabGroups.query({});
+        const g = groups.find(x => (x.title || '未命名标签组') === groupTitle);
+        if (g) return g.id;
+    }
+    return null;
+}
+
+// 按分组标题解析排序配置（重启后仍有效，兼容旧版按 ID 的配置）
+async function getGroupSortSettings(groupId, groupSortSettings, defaultSortMethod) {
+    try {
+        const group = await chrome.tabGroups.get(groupId);
+        const titleKey = group.title || '未命名标签组';
+        const byTitle = groupSortSettings[titleKey];
+        const byId = groupSortSettings[String(groupId)] || groupSortSettings[groupId];
+        const s = byTitle || byId || {};
+        return { autoSort: !!s.autoSort, sortMethod: s.sortMethod || defaultSortMethod };
+    } catch (e) {
+        return { autoSort: false, sortMethod: defaultSortMethod };
+    }
+}
+
 // 触发分组排序（带重试机制）
 async function triggerGroupSort(groupId, sortMethod, retries = 3) {
     for (let i = 0; i < retries; i++) {
@@ -149,7 +179,60 @@ async function triggerGroupSort(groupId, sortMethod, retries = 3) {
 // 处理标签页分组
 async function handleTabGrouping(tab) {
     try {
-        // 如果是通过标签组"+"按钮创建的标签页，不分组
+        // 获取设置（含 defaultGroupTitle / rule.groupTitle，重启后按标题解析有效 ID）
+        const { defaultGroupId, defaultGroupTitle, groupSortSettings = {}, sortMethod = 'domain', urlRules = [], ignorePopup } = await chrome.storage.local.get(['defaultGroupId', 'defaultGroupTitle', 'groupSortSettings', 'sortMethod', 'urlRules', 'ignorePopup']);
+
+        // 检查URL是否有效（不是新标签页等）
+        if (!tab.url || tab.url === 'chrome://newtab/' || tab.url === 'about:newtab' || tab.url === 'edge://newtab/') {
+            // URL无效或还未加载，等待URL更新事件处理
+            return;
+        }
+
+        // 首先检查URL规则，如果匹配且启用了autoMove，则使用规则指定的标签组
+        // 规则优先级高于默认标签组，即使标签页已经在某个组中，也要应用规则
+        if (urlRules && urlRules.length > 0) {
+            console.log('检查URL规则，当前URL:', tab.url, '规则数量:', urlRules.length);
+            for (const rule of urlRules) {
+                console.log('检查规则:', rule.pattern, 'autoMove:', rule.autoMove);
+                // 检查规则是否有autoMove属性且为true
+                if (rule.autoMove && matchesPattern(tab.url, rule.pattern)) {
+                    console.log('URL规则匹配:', rule.pattern, '->', tab.url);
+                    const ruleGroupId = await resolveGroupId(rule.groupId, rule.groupTitle);
+                    if (ruleGroupId == null) {
+                        console.error('应用URL规则失败: 规则指定的标签组不存在', rule);
+                        continue;
+                    }
+                    try {
+                        // 如果标签页已经在规则指定的组中，不需要移动
+                        if (tab.groupId === ruleGroupId) {
+                            console.log('标签页已在规则指定的标签组中');
+                            return;
+                        }
+
+                        // 将标签页添加到规则指定的标签组
+                        await chrome.tabs.group({
+                            tabIds: tab.id,
+                            groupId: ruleGroupId
+                        });
+                        console.log('标签页已移动到规则指定的标签组:', ruleGroupId);
+
+                        // 检查该分组是否开启了自动排序（按标题匹配，重启后仍有效）
+                        const groupSettings = await getGroupSortSettings(ruleGroupId, groupSortSettings, sortMethod);
+                        if (groupSettings.autoSort) {
+                            triggerGroupSort(ruleGroupId, groupSettings.sortMethod).catch(err => {
+                                console.error('自动排序失败:', err);
+                            });
+                        }
+                        return; // 规则匹配成功，不再处理默认标签组
+                    } catch (error) {
+                        console.error('应用URL规则失败:', error, '规则:', rule);
+                        // 如果规则指定的标签组不存在，继续使用默认标签组
+                    }
+                }
+            }
+        }
+
+        // 如果是通过标签组"+"按钮创建的标签页，不分组（仅对默认标签组）
         if (tab.groupId != chrome.tabGroups.TAB_GROUP_ID_NONE) {
             console.log('通过标签组"+"按钮创建的标签页，跳过分组');
             return;
@@ -159,38 +242,45 @@ async function handleTabGrouping(tab) {
         const window = await chrome.windows.get(tab.windowId);
         const isPopupWindow = window.type !== 'normal';
 
-        // 获取设置
-        const { defaultGroupId, groupSortSettings = {}, sortMethod = 'domain' } = await chrome.storage.local.get(['defaultGroupId', 'groupSortSettings', 'sortMethod']);
-
-        if (isPopupWindow) {
-            console.log('检测到独立窗口，跳过分组');
+        // 检查是否忽略独立窗口
+        if (isPopupWindow && ignorePopup) {
+            console.log('检测到独立窗口且设置了忽略，跳过分组');
             return;
         }
 
-        if (defaultGroupId) {
-            // 检查标签组是否存在
-            await chrome.tabGroups.get(defaultGroupId);
-
-            // 将标签页添加到默认标签组
-            await chrome.tabs.group({
-                tabIds: tab.id,
-                groupId: defaultGroupId
-            });
-
-            // 检查该分组是否开启了自动排序（确保ID类型一致）
-            const groupIdKey = String(defaultGroupId);
-            const groupSettings = groupSortSettings[groupIdKey] || groupSortSettings[defaultGroupId];
-            if (groupSettings && groupSettings.autoSort) {
-                const method = groupSettings.sortMethod || sortMethod;
-                // 异步触发排序，不阻塞
-                triggerGroupSort(defaultGroupId, method).catch(err => {
-                    console.error('自动排序失败:', err);
+        // 如果没有匹配的URL规则，使用默认标签组（按 ID 或 defaultGroupTitle 解析，重启后仍有效）
+        const effectiveDefaultGroupId = await resolveGroupId(defaultGroupId, defaultGroupTitle);
+        if (effectiveDefaultGroupId) {
+            try {
+                // 将标签页添加到默认标签组
+                await chrome.tabs.group({
+                    tabIds: tab.id,
+                    groupId: effectiveDefaultGroupId
                 });
+
+                // 检查该分组是否开启了自动排序（按标题匹配，重启后仍有效）
+                const groupSettings = await getGroupSortSettings(effectiveDefaultGroupId, groupSortSettings, sortMethod);
+                if (groupSettings.autoSort) {
+                    triggerGroupSort(effectiveDefaultGroupId, groupSettings.sortMethod).catch(err => {
+                        console.error('自动排序失败:', err);
+                    });
+                }
+            } catch (error) {
+                console.error('加入默认标签组失败:', error);
             }
         }
     } catch (error) {
         console.error('标签组不存在:', error);
     }
+}
+
+// URL模式匹配
+function matchesPattern(url, pattern) {
+    const regexPattern = pattern
+        .replace(/\./g, '\\.')
+        .replace(/\*/g, '.*')
+        .replace(/\?/g, '\\?');
+    return new RegExp(regexPattern).test(url);
 }
 
 // 监听标签页创建事件
@@ -209,11 +299,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
             changeInfo.url !== 'about:newtab') {
             try {
                 const { groupSortSettings = {}, sortMethod = 'domain' } = await chrome.storage.local.get(['groupSortSettings', 'sortMethod']);
-                const groupIdKey = String(tab.groupId);
-                const groupSettings = groupSortSettings[groupIdKey] || groupSortSettings[tab.groupId];
-                if (groupSettings && groupSettings.autoSort) {
-                    const method = groupSettings.sortMethod || sortMethod;
-                    // 延迟一下，确保URL已完全更新
+                const groupSettings = await getGroupSortSettings(tab.groupId, groupSortSettings, sortMethod);
+                if (groupSettings.autoSort) {
+                    const method = groupSettings.sortMethod;
                     setTimeout(async () => {
                         await sortTabsInGroup(tab.groupId, method);
                     }, 300);
@@ -227,11 +315,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.groupId !== undefined && tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
         try {
             const { groupSortSettings = {}, sortMethod = 'domain' } = await chrome.storage.local.get(['groupSortSettings', 'sortMethod']);
-            const groupIdKey = String(tab.groupId);
-            const groupSettings = groupSortSettings[groupIdKey] || groupSortSettings[tab.groupId];
-            if (groupSettings && groupSettings.autoSort) {
-                const method = groupSettings.sortMethod || sortMethod;
-                triggerGroupSort(tab.groupId, method).catch(err => {
+            const groupSettings = await getGroupSortSettings(tab.groupId, groupSortSettings, sortMethod);
+            if (groupSettings.autoSort) {
+                triggerGroupSort(tab.groupId, groupSettings.sortMethod).catch(err => {
                     console.error('自动排序失败:', err);
                 });
             }
@@ -270,11 +356,11 @@ async function sortAllTabs(sortMethod) {
         const groups = await chrome.tabGroups.query({});
         
         for (const group of groups) {
-            // 优先使用分组自己的排序配置，如果没有则使用传入的排序方式，最后使用默认排序方式
-            // 确保ID类型一致
-            const groupIdKey = String(group.id);
-            const groupSettings = groupSortSettings[groupIdKey] || groupSortSettings[group.id];
-            const method = groupSettings?.sortMethod || sortMethod || defaultSortMethod;
+            const titleKey = group.title || '未命名标签组';
+            const byTitle = groupSortSettings[titleKey];
+            const byId = groupSortSettings[String(group.id)] || groupSortSettings[group.id];
+            const s = byTitle || byId;
+            const method = (s && s.sortMethod) || sortMethod || defaultSortMethod;
             await sortTabsInGroup(group.id, method);
         }
     } catch (error) {
