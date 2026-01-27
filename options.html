@@ -149,6 +149,31 @@
             margin: 0;
             background: #dc3545;
         }
+
+        .group-sort-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .group-sort-item label {
+            display: flex;
+            align-items: center;
+            flex: 1;
+            cursor: pointer;
+        }
+
+        .group-sort-item select {
+            width: auto;
+            min-width: 150px;
+            margin: 0 0 0 10px;
+            padding: 6px 10px;
+        }
     </style>
 </head>
 
@@ -173,7 +198,24 @@
                 <input type="checkbox" id="ignorePopup">
                 <label for="ignorePopup">不将独立窗口的标签页加入标签组</label>
             </div>
+            <div style="margin-top: 15px;">
+                <label for="sortMethod" style="display: block; margin-bottom: 8px; font-size: 14px; color: #444;">默认排序方式：</label>
+                <select id="sortMethod">
+                    <option value="domain">按域名排序（推荐）</option>
+                    <option value="url">按URL字母顺序</option>
+                    <option value="title">按标题字母顺序</option>
+                    <option value="created">按创建时间（最新在前）</option>
+                </select>
+            </div>
             <button id="saveButton">保存设置</button>
+        </div>
+
+        <div class="card">
+            <h3>分组排序配置</h3>
+            <div id="groupSortList" style="max-height: 400px; overflow-y: auto;">
+                <!-- 分组列表将在这里动态生成 -->
+            </div>
+            <button id="saveSortSettingsButton" style="margin-top: 15px;">保存排序配置</button>
         </div>
 
         <div class="card">

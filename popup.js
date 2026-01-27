@@ -241,6 +241,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       .replace(/\*/g, '.*');
     const regex = new RegExp(pattern);
 
+    const groupId = parseInt(rule.groupId);
+    let hasMovedTabs = false;
+
     for (const tab of allTabs) {
       // 根据forceMove设置决定是否跳过已分组的标签页
       if (!forceMove && tab.groupId !== -1) continue;
@@ -248,11 +251,34 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
           await chrome.tabs.group({
             tabIds: tab.id,
-            groupId: rule.groupId
+            groupId: groupId
           });
+          hasMovedTabs = true;
         } catch (error) {
           console.error('无法将标签页添加到组:', error);
         }
+      }
+    }
+
+    // 如果移动了标签页，检查是否需要排序
+    if (hasMovedTabs) {
+      try {
+        const { groupSortSettings = {}, sortMethod = 'domain' } = await chrome.storage.local.get(['groupSortSettings', 'sortMethod']);
+        const groupIdKey = String(groupId);
+        const groupSettings = groupSortSettings[groupIdKey] || groupSortSettings[groupId];
+        if (groupSettings && groupSettings.autoSort) {
+          const method = groupSettings.sortMethod || sortMethod;
+          // 延迟一下确保标签页已加入分组
+          setTimeout(async () => {
+            await chrome.runtime.sendMessage({
+              action: 'sortGroup',
+              groupId: groupId,
+              sortMethod: method
+            });
+          }, 300);
+        }
+      } catch (error) {
+        console.error('触发排序失败:', error);
       }
     }
   };
@@ -328,6 +354,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
+    const groupsWithMovedTabs = new Set();
+
     for (const tab of allTabs) {
       // 根据forceMove设置决定是否跳过已分组的标签页
       if (!forceMove && tab.groupId !== -1) continue;
@@ -341,15 +369,40 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (regex.test(tab.url)) {
           try {
+            const groupId = parseInt(rule.groupId);
             await chrome.tabs.group({
               tabIds: tab.id,
-              groupId: rule.groupId
+              groupId: groupId
             });
+            groupsWithMovedTabs.add(groupId);
             break;
           } catch (error) {
             console.error('无法将标签页添加到组:', error);
           }
         }
+      }
+    }
+
+    // 对移动了标签页的分组进行排序
+    if (groupsWithMovedTabs.size > 0) {
+      try {
+        const { groupSortSettings = {}, sortMethod = 'domain' } = await chrome.storage.local.get(['groupSortSettings', 'sortMethod']);
+        setTimeout(async () => {
+          for (const groupId of groupsWithMovedTabs) {
+            const groupIdKey = String(groupId);
+            const groupSettings = groupSortSettings[groupIdKey] || groupSortSettings[groupId];
+            if (groupSettings && groupSettings.autoSort) {
+              const method = groupSettings.sortMethod || sortMethod;
+              await chrome.runtime.sendMessage({
+                action: 'sortGroup',
+                groupId: groupId,
+                sortMethod: method
+              });
+            }
+          }
+        }, 300);
+      } catch (error) {
+        console.error('触发排序失败:', error);
       }
     }
   });
@@ -411,5 +464,39 @@ document.addEventListener('DOMContentLoaded', async () => {
       Math.pow(g1 - g2, 2) +
       Math.pow(b1 - b2, 2)
     );
+  }
+
+  // 一键排序所有标签页
+  const sortTabsButton = document.getElementById('sortTabsButton');
+  if (sortTabsButton) {
+    sortTabsButton.addEventListener('click', async () => {
+      try {
+        const { sortMethod = 'domain' } = await chrome.storage.local.get(['sortMethod']);
+        sortTabsButton.textContent = '排序中...';
+        sortTabsButton.disabled = true;
+
+        const response = await chrome.runtime.sendMessage({
+          action: 'sortAllTabs',
+          sortMethod: sortMethod
+        });
+
+        if (response && response.success) {
+          sortTabsButton.textContent = '排序完成！';
+          setTimeout(() => {
+            sortTabsButton.textContent = '一键排序所有标签页';
+            sortTabsButton.disabled = false;
+          }, 2000);
+        } else {
+          throw new Error(response?.error || '排序失败');
+        }
+      } catch (error) {
+        console.error('排序失败:', error);
+        sortTabsButton.textContent = '排序失败，请重试';
+        sortTabsButton.disabled = false;
+        setTimeout(() => {
+          sortTabsButton.textContent = '一键排序所有标签页';
+        }, 2000);
+      }
+    });
   }
 });
