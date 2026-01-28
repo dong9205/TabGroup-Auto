@@ -409,6 +409,7 @@ async function applyRulesToAllTabs() {
     const groupsWithMovedTabs = new Set();
 
     for (const tab of tabs) {
+        if (tab.pinned) continue;
         for (const rule of urlRules) {
             if (matchesPattern(tab.url, rule.pattern)) {
                 try {

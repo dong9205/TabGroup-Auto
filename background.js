@@ -188,6 +188,11 @@ async function handleTabGrouping(tab) {
             return;
         }
 
+        // 固定标签页不参与分组
+        if (tab.pinned) {
+            return;
+        }
+
         // 首先检查URL规则，如果匹配且启用了autoMove，则使用规则指定的标签组
         // 规则优先级高于默认标签组，即使标签页已经在某个组中，也要应用规则
         if (urlRules && urlRules.length > 0) {

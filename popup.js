@@ -259,6 +259,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let hasMovedTabs = false;
 
     for (const tab of allTabs) {
+      if (tab.pinned) continue;
       // 根据forceMove设置决定是否跳过已分组的标签页
       if (!forceMove && tab.groupId !== -1) continue;
       if (regex.test(tab.url)) {
@@ -373,6 +374,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const groupsWithMovedTabs = new Set();
 
     for (const tab of allTabs) {
+      if (tab.pinned) continue;
       // 根据forceMove设置决定是否跳过已分组的标签页
       if (!forceMove && tab.groupId !== -1) continue;
 
