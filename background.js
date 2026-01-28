@@ -280,10 +280,27 @@ async function handleTabGrouping(tab) {
                 // 检查规则是否有autoMove属性且为true
                 if (rule.autoMove && matchesPattern(tab.url, rule.pattern)) {
                     console.log('URL规则匹配:', rule.pattern, '->', tab.url);
-                    const ruleGroupId = await resolveGroupId(rule.groupId, rule.groupTitle);
+                    let ruleGroupId = await resolveGroupId(rule.groupId, rule.groupTitle);
+                    // 规则匹配但标签组不存在时（例如该组下所有标签已关闭导致组被关闭），用 tabs.group 创建新组并移入标签
                     if (ruleGroupId == null) {
-                        console.error('应用URL规则失败: 规则指定的标签组不存在', rule);
-                        continue;
+                        try {
+                            // chrome.tabGroups.create 在部分环境不可用，改用 tabs.group 仅传 tabIds 会创建新组并返回 groupId
+                            ruleGroupId = await chrome.tabs.group({ tabIds: tab.id });
+                            const groupTitle = (rule.groupTitle && rule.groupTitle.trim()) || '未命名标签组';
+                            await chrome.tabGroups.update(ruleGroupId, { title: groupTitle });
+                            console.log('规则对应的标签组已关闭，已按规则标题创建新标签组:', groupTitle, 'id:', ruleGroupId);
+                            // 标签已在新组中，下面只需做排序检查，跳过“移动到组”的步骤
+                            const groupSettings = await getGroupSortSettings(ruleGroupId, groupSortSettings, sortMethod);
+                            if (groupSettings.autoSort) {
+                                triggerGroupSort(ruleGroupId, groupSettings.sortMethod).catch(err => {
+                                    console.error('自动排序失败:', err);
+                                });
+                            }
+                            return;
+                        } catch (createErr) {
+                            console.error('应用URL规则失败: 无法创建标签组', createErr, '规则:', rule);
+                            continue;
+                        }
                     }
                     try {
                         // 如果标签页已经在规则指定的组中，不需要移动
