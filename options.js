@@ -23,7 +23,6 @@ async function initializePage() {
 
 // 加载所有标签组
 async function loadGroups() {
-    const tabs = await chrome.tabs.query({});
     const groups = await chrome.tabGroups.query({});
     currentGroups = groups;
 
@@ -222,7 +221,7 @@ async function loadRules() {
     const { urlRules = [] } = await chrome.storage.local.get(['urlRules']);
     let changed = false;
     for (const rule of urlRules) {
-        if (!rule.groupTitle && (rule.groupId != null || rule.groupId !== '')) {
+        if (!rule.groupTitle && rule.groupId != null && rule.groupId !== '') {
             const g = currentGroups.find(c => c.id == rule.groupId || c.id === parseInt(rule.groupId));
             if (g) {
                 rule.groupTitle = g.title || '未命名标签组';
@@ -314,12 +313,6 @@ function updateRulesList(rules) {
             }
         });
     });
-}
-
-// 获取标签组标题
-function getGroupTitle(groupId) {
-    const group = currentGroups.find(g => g.id === parseInt(groupId));
-    return group ? (group.title || '未命名标签组') : '未知标签组';
 }
 
 // 添加新规则
@@ -426,7 +419,7 @@ async function applyRulesToAllTabs() {
         for (const rule of urlRules) {
             if (matchesPattern(tab.url, rule.pattern)) {
                 try {
-                    if (forceMove || !tab.groupId) {
+                    if (forceMove || tab.groupId === -1) {
                         const groupId = resolveRuleGroupId(rule);
                         if (groupId == null) continue;
                         await chrome.tabs.group({
@@ -480,10 +473,43 @@ function matchesPattern(url, pattern) {
     return new RegExp(regexPattern).test(url);
 }
 
-// 颜色值转换
-function convertColorToOption(color) {
-    const colors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan'];
-    return colors[Math.floor(Math.random() * colors.length)];
+// 将十六进制颜色转换为 Chrome 标签组支持的颜色名称
+function convertColorToOption(hex) {
+    const colors = {
+        '#1a73e8': 'blue',
+        '#d93025': 'red',
+        '#188038': 'green',
+        '#f29900': 'yellow',
+        '#9334e6': 'purple',
+        '#fa903e': 'orange',
+        '#1e88e5': 'cyan',
+        '#e67c73': 'pink',
+        '#666666': 'grey'
+    };
+    let minDistance = Infinity;
+    let closestColor = 'blue';
+    for (const [colorHex, colorName] of Object.entries(colors)) {
+        const distance = compareColors(hex, colorHex);
+        if (distance < minDistance) {
+            minDistance = distance;
+            closestColor = colorName;
+        }
+    }
+    return closestColor;
+}
+
+function compareColors(hex1, hex2) {
+    const r1 = parseInt(hex1.slice(1, 3), 16);
+    const g1 = parseInt(hex1.slice(3, 5), 16);
+    const b1 = parseInt(hex1.slice(5, 7), 16);
+    const r2 = parseInt(hex2.slice(1, 3), 16);
+    const g2 = parseInt(hex2.slice(3, 5), 16);
+    const b2 = parseInt(hex2.slice(5, 7), 16);
+    return Math.sqrt(
+        Math.pow(r1 - r2, 2) +
+        Math.pow(g1 - g2, 2) +
+        Math.pow(b1 - b2, 2)
+    );
 }
 
 // 显示通知

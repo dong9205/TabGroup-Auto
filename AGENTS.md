@@ -57,7 +57,7 @@ All files are plain HTML/CSS/JS. Keep changes small and consistent with existing
 
 ### Storage Usage
 - Settings are persisted with `chrome.storage.local`.
-- Expect keys like: `defaultGroupId`, `defaultGroupTitle`, `ignorePopupWindows`, `ignorePopup`, `urlRules`.
+- Expect keys like: `defaultGroupId`, `defaultGroupTitle`, `ignorePopup`, `urlRules`.
 - When adding new keys, document them in code comments only if necessary.
 
 ### UI / DOM Patterns

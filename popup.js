@@ -41,8 +41,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   await updateGroupLists();
 
   // 加载已保存的设置
-  const { defaultGroupId, defaultGroupTitle, ignorePopupWindows, urlRules } =
-    await chrome.storage.local.get(['defaultGroupId', 'defaultGroupTitle', 'ignorePopupWindows', 'urlRules']);
+  const { defaultGroupId, defaultGroupTitle, ignorePopup: ignorePopupChecked, urlRules } =
+    await chrome.storage.local.get(['defaultGroupId', 'defaultGroupTitle', 'ignorePopup', 'urlRules']);
 
   let resolvedGroupId = defaultGroupId;
   if (resolvedGroupId) {
@@ -63,7 +63,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (resolvedGroupId) {
     groupSelect.value = resolvedGroupId;
   }
-  ignorePopup.checked = ignorePopupWindows || false;
+  ignorePopup.checked = ignorePopupChecked || false;
 
 
   // 显示已保存的URL规则
@@ -252,7 +252,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const forceMove = document.getElementById('forceMove').checked;
     const pattern = rule.pattern
       .replace(/\./g, '\\.')
-      .replace(/\*/g, '.*');
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '\\?');
     const regex = new RegExp(pattern);
 
     const groupId = parseInt(rule.groupId);
@@ -433,7 +434,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await chrome.storage.local.set({
       defaultGroupId: selectedGroupId,
       defaultGroupTitle: selectedGroup ? selectedGroup.title || '' : '',
-      ignorePopupWindows: ignorePopup.checked
+      ignorePopup: ignorePopup.checked
     });
     window.close();
   });
