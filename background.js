@@ -263,6 +263,14 @@ async function handleTabGrouping(tab) {
             return;
         }
 
+        // 独立窗口（如划词翻译、extension 的 panel 等）且用户开启了“不加入标签组”时，既不应用URL规则也不加入默认组
+        const window = await chrome.windows.get(tab.windowId);
+        const isPopupWindow = window.type !== 'normal';
+        if (isPopupWindow && ignorePopup) {
+            console.log('检测到独立窗口且设置了忽略，跳过分组（含URL规则）');
+            return;
+        }
+
         // 首先检查URL规则，如果匹配且启用了autoMove，则使用规则指定的标签组
         // 规则优先级高于默认标签组，即使标签页已经在某个组中，也要应用规则
         if (urlRules && urlRules.length > 0) {
@@ -310,16 +318,6 @@ async function handleTabGrouping(tab) {
         // 如果是通过标签组"+"按钮创建的标签页，不分组（仅对默认标签组）
         if (tab.groupId != chrome.tabGroups.TAB_GROUP_ID_NONE) {
             console.log('通过标签组"+"按钮创建的标签页，跳过分组');
-            return;
-        }
-
-        // 获取标签页所在的窗口信息
-        const window = await chrome.windows.get(tab.windowId);
-        const isPopupWindow = window.type !== 'normal';
-
-        // 检查是否忽略独立窗口
-        if (isPopupWindow && ignorePopup) {
-            console.log('检测到独立窗口且设置了忽略，跳过分组');
             return;
         }
 
