@@ -8,11 +8,47 @@ function getDomain(url) {
     }
 }
 
+// 从URL提取二级域名（如 a.p-pp.cn、b.c.p-pp.cn 均得到 p-pp.cn）
+function getSecondLevelDomain(url) {
+    try {
+        const hostname = new URL(url).hostname.replace(/^www\./, '');
+        const parts = hostname.split('.');
+        if (parts.length >= 2) {
+            return parts.slice(-2).join('.');
+        }
+        return hostname;
+    } catch (e) {
+        return '';
+    }
+}
+
+// 从 hostname 提取域名层级数组：level1=顶级(cn/xyz)，level2=二级(p-pp.cn)，level3=三级(a.p-pp.cn)…
+// maxLevel 为参与比较的最大层级数，不足的用 '' 补齐
+function getDomainLevels(url, maxLevel) {
+    try {
+        const hostname = new URL(url).hostname.replace(/^www\./, '');
+        const parts = hostname.split('.');
+        const levels = [];
+        for (let k = 1; k <= Math.min(maxLevel, parts.length); k++) {
+            levels.push(parts.slice(-k).join('.'));
+        }
+        while (levels.length < maxLevel) {
+            levels.push('');
+        }
+        return levels;
+    } catch (e) {
+        return Array(maxLevel).fill('');
+    }
+}
+
 // 排序标签页
 async function sortTabsInGroup(groupId, sortMethod) {
     try {
         const tabs = await chrome.tabs.query({ groupId: groupId });
         if (tabs.length <= 1) return;
+
+        const { domainSortMaxLevel = 4 } = await chrome.storage.local.get(['domainSortMaxLevel']);
+        const maxLevel = Math.max(2, Math.min(10, parseInt(domainSortMaxLevel, 10) || 4));
 
         // 按窗口分组，因为不同窗口的标签页不能直接移动
         const tabsByWindow = {};
@@ -47,6 +83,40 @@ async function sortTabsInGroup(groupId, sortMethod) {
                             return (a.id || 0) - (b.id || 0);
                         }
                         return domainA.localeCompare(domainB);
+                    });
+                    break;
+                case 'domain2':
+                    // 按二级域名排序，如 a.p-pp.cn、b.c.p-pp.cn 均按 p-pp.cn 排在一起
+                    sortedTabs.sort((a, b) => {
+                        const urlA = a.url || '';
+                        const urlB = b.url || '';
+                        if (!urlA && !urlB) return (a.id || 0) - (b.id || 0);
+                        if (!urlA) return 1;
+                        if (!urlB) return -1;
+                        
+                        const domainA = getSecondLevelDomain(urlA);
+                        const domainB = getSecondLevelDomain(urlB);
+                        if (domainA === domainB) {
+                            return (a.id || 0) - (b.id || 0);
+                        }
+                        return domainA.localeCompare(domainB);
+                    });
+                    break;
+                case 'domainLevel':
+                    // 按域名层级排序：先顶级(cn/xyz)，再二级(p-pp.cn)，再三级(a.p-pp.cn)…，层级数由 domainSortMaxLevel 配置
+                    sortedTabs.sort((a, b) => {
+                        const urlA = a.url || '';
+                        const urlB = b.url || '';
+                        if (!urlA && !urlB) return (a.id || 0) - (b.id || 0);
+                        if (!urlA) return 1;
+                        if (!urlB) return -1;
+                        const levelsA = getDomainLevels(urlA, maxLevel);
+                        const levelsB = getDomainLevels(urlB, maxLevel);
+                        for (let i = 0; i < maxLevel; i++) {
+                            const c = (levelsA[i] || '').localeCompare(levelsB[i] || '');
+                            if (c !== 0) return c;
+                        }
+                        return (a.id || 0) - (b.id || 0);
                     });
                     break;
                 case 'url':

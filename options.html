@@ -202,10 +202,16 @@
                 <label for="sortMethod" style="display: block; margin-bottom: 8px; font-size: 14px; color: #444;">默认排序方式：</label>
                 <select id="sortMethod">
                     <option value="domain">按域名排序（推荐）</option>
+                    <option value="domain2">按二级域名排序</option>
+                    <option value="domainLevel">按域名层级排序</option>
                     <option value="url">按URL字母顺序</option>
                     <option value="title">按标题字母顺序</option>
                     <option value="created">按创建时间（最新在前）</option>
                 </select>
+            </div>
+            <div style="margin-top: 10px;" id="domainLevelConfig">
+                <label for="domainSortMaxLevel" style="font-size: 14px; color: #444;">域名层级数（2～10，仅「按域名层级排序」生效）：</label>
+                <input type="number" id="domainSortMaxLevel" min="2" max="10" value="4" style="width: 56px; padding: 6px; margin-left: 8px; border: 2px solid #e0e0e0; border-radius: 6px; box-sizing: border-box;">
             </div>
             <button id="saveButton">保存设置</button>
         </div>

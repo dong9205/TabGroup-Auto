@@ -71,6 +71,8 @@ function updateGroupSortList(groups) {
                 <span style="flex: 1;">${group.title || '未命名标签组'}</span>
                 <select class="group-sort-method" data-group-id="${group.id}">
                     <option value="domain">按域名排序</option>
+                    <option value="domain2">按二级域名排序</option>
+                    <option value="domainLevel">按域名层级排序</option>
                     <option value="url">按URL排序</option>
                     <option value="title">按标题排序</option>
                     <option value="created">按创建时间</option>
@@ -137,7 +139,7 @@ async function saveGroupSortSettings() {
 
 // 加载设置（支持 defaultGroupId / defaultGroupTitle，重启后按标题恢复）
 async function loadSettings() {
-    const settings = await chrome.storage.local.get(['defaultGroupId', 'defaultGroupTitle', 'ignorePopup', 'sortMethod']);
+    const settings = await chrome.storage.local.get(['defaultGroupId', 'defaultGroupTitle', 'ignorePopup', 'sortMethod', 'domainSortMaxLevel']);
     const hasGroupById = settings.defaultGroupId != null && currentGroups.some(g => g.id == settings.defaultGroupId);
     if (hasGroupById) {
         groupSelect.value = settings.defaultGroupId;
@@ -153,6 +155,11 @@ async function loadSettings() {
     if (sortMethodSelect && settings.sortMethod) {
         sortMethodSelect.value = settings.sortMethod;
     }
+    const domainSortMaxLevelEl = document.getElementById('domainSortMaxLevel');
+    if (domainSortMaxLevelEl != null && settings.domainSortMaxLevel != null) {
+        const n = Math.max(2, Math.min(10, parseInt(settings.domainSortMaxLevel, 10) || 4));
+        domainSortMaxLevelEl.value = String(n);
+    }
 }
 
 // 保存设置（同时存 defaultGroupId 与 defaultGroupTitle，重启后后台按标题解析）
@@ -167,11 +174,17 @@ async function saveSettings() {
         }
     }
     const sortMethodSelect = document.getElementById('sortMethod');
+    const domainSortMaxLevelEl = document.getElementById('domainSortMaxLevel');
+    let domainSortMaxLevel = 4;
+    if (domainSortMaxLevelEl) {
+        domainSortMaxLevel = Math.max(2, Math.min(10, parseInt(domainSortMaxLevelEl.value, 10) || 4));
+    }
     const settings = {
         defaultGroupId,
         defaultGroupTitle,
         ignorePopup: ignorePopup.checked,
-        sortMethod: sortMethodSelect ? sortMethodSelect.value : 'domain'
+        sortMethod: sortMethodSelect ? sortMethodSelect.value : 'domain',
+        domainSortMaxLevel
     };
     await chrome.storage.local.set(settings);
     showNotification('设置已保存');
@@ -345,7 +358,7 @@ async function deleteRule(index) {
 
 // 导出配置
 async function exportConfig() {
-    const config = await chrome.storage.local.get(['defaultGroupId', 'defaultGroupTitle', 'ignorePopup', 'urlRules', 'groupSortSettings', 'sortMethod']);
+    const config = await chrome.storage.local.get(['defaultGroupId', 'defaultGroupTitle', 'ignorePopup', 'urlRules', 'groupSortSettings', 'sortMethod', 'domainSortMaxLevel']);
     const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
 
