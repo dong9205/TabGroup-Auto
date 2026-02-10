@@ -437,6 +437,46 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
         return true; // 保持消息通道开放
     }
+
+    if (request.action === 'syncUploadGroupedTabs') {
+        handleSyncUploadGroupedTabs().then((result) => {
+            sendResponse({ success: true, result });
+        }).catch(error => {
+            console.error('同步上传失败:', error);
+            sendResponse({ success: false, error: error.message });
+        });
+        return true;
+    }
+
+    if (request.action === 'syncPullRestoreGroupedTabs') {
+        handleSyncPullRestoreGroupedTabs().then((result) => {
+            sendResponse({ success: true, result });
+        }).catch(error => {
+            console.error('同步拉取/复原失败:', error);
+            sendResponse({ success: false, error: error.message });
+        });
+        return true;
+    }
+
+    if (request.action === 'syncUploadConfig') {
+        handleSyncUploadConfig().then((result) => {
+            sendResponse({ success: true, result });
+        }).catch(error => {
+            console.error('配置同步上传失败:', error);
+            sendResponse({ success: false, error: (error && (error.message || String(error))) || '配置上传失败' });
+        });
+        return true;
+    }
+
+    if (request.action === 'syncPullConfig') {
+        handleSyncPullConfig().then((result) => {
+            sendResponse({ success: true, result });
+        }).catch(error => {
+            console.error('配置同步拉取失败:', error);
+            sendResponse({ success: false, error: (error && (error.message || String(error))) || '配置拉取失败' });
+        });
+        return true;
+    }
 });
 
 // 排序所有标签页
@@ -457,4 +497,513 @@ async function sortAllTabs(sortMethod) {
         console.error('排序所有标签页失败:', error);
         throw error;
     }
+}
+
+function isSyncableUrl(url) {
+    if (!url) return false;
+    // 仅同步可跨设备正常打开的 URL
+    return /^https?:\/\//i.test(url);
+}
+
+async function getSyncConfigOrThrow() {
+    const { syncWorkerBaseUrl = '', syncPassphrase = '' } = await chrome.storage.local.get(['syncWorkerBaseUrl', 'syncPassphrase']);
+    const defaultBaseUrl = 'https://tab.p-pp.xyz';
+    const baseUrl = ((syncWorkerBaseUrl || '').trim() || defaultBaseUrl).replace(/\/+$/, '');
+    const passphrase = (syncPassphrase || '').trim();
+    if (!baseUrl) {
+        throw new Error('未配置 Worker 地址，请在选项页设置');
+    }
+    if (!passphrase) {
+        throw new Error('未配置同步口令，请在选项页设置');
+    }
+    return { baseUrl, passphrase };
+}
+
+async function getOrCreateSyncDeviceId() {
+    const { syncDeviceId } = await chrome.storage.local.get(['syncDeviceId']);
+    if (syncDeviceId) return syncDeviceId;
+
+    let id = '';
+    if (crypto && typeof crypto.randomUUID === 'function') {
+        id = crypto.randomUUID();
+    } else {
+        const bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        id = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    await chrome.storage.local.set({ syncDeviceId: id });
+    return id;
+}
+
+function arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+}
+
+function base64ToArrayBuffer(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+}
+
+async function sha256Hex(text) {
+    const data = new TextEncoder().encode(text);
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function deriveAesGcmKeyFromPassphrase(passphrase) {
+    return deriveAesGcmKeyFromPassphraseWithSalt(passphrase, new TextEncoder().encode('tabgroup-auto-sync-v1'));
+}
+
+async function deriveAesGcmKeyFromPassphraseWithSalt(passphrase, saltBytes) {
+    const keyMaterial = await crypto.subtle.importKey(
+        'raw',
+        new TextEncoder().encode(passphrase),
+        'PBKDF2',
+        false,
+        ['deriveKey']
+    );
+
+    return crypto.subtle.deriveKey(
+        {
+            name: 'PBKDF2',
+            salt: saltBytes,
+            iterations: 300000,
+            hash: 'SHA-256'
+        },
+        keyMaterial,
+        {
+            name: 'AES-GCM',
+            length: 256
+        },
+        false,
+        ['encrypt', 'decrypt']
+    );
+}
+
+function randomBytesBase64(byteLength) {
+    const bytes = new Uint8Array(byteLength);
+    crypto.getRandomValues(bytes);
+    return arrayBufferToBase64(bytes.buffer);
+}
+
+async function encryptSnapshot(passphrase, snapshot) {
+    // 每次加密使用随机 KDF salt，降低跨用户/跨版本的预计算攻击收益
+    const kdfSaltBase64 = randomBytesBase64(16);
+    const kdfSaltBytes = new Uint8Array(base64ToArrayBuffer(kdfSaltBase64));
+    const key = await deriveAesGcmKeyFromPassphraseWithSalt(passphrase, kdfSaltBytes);
+    const iv = new Uint8Array(12);
+    crypto.getRandomValues(iv);
+    const plaintext = new TextEncoder().encode(JSON.stringify(snapshot));
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
+    return {
+        kdfSaltBase64,
+        ivBase64: arrayBufferToBase64(iv.buffer),
+        ciphertextBase64: arrayBufferToBase64(ciphertext)
+    };
+}
+
+async function decryptSnapshot(passphrase, ivBase64, ciphertextBase64, kdfSaltBase64) {
+    // 兼容旧数据：旧版本使用固定 salt（tabgroup-auto-sync-v1）且没有 kdfSalt 字段
+    let key;
+    if (kdfSaltBase64) {
+        const kdfSaltBytes = new Uint8Array(base64ToArrayBuffer(kdfSaltBase64));
+        key = await deriveAesGcmKeyFromPassphraseWithSalt(passphrase, kdfSaltBytes);
+    } else {
+        key = await deriveAesGcmKeyFromPassphrase(passphrase);
+    }
+    const iv = new Uint8Array(base64ToArrayBuffer(ivBase64));
+    const ciphertext = base64ToArrayBuffer(ciphertextBase64);
+    const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+    const text = new TextDecoder().decode(new Uint8Array(plaintext));
+    return JSON.parse(text);
+}
+
+async function collectGroupedTabsSnapshot() {
+    const windows = await chrome.windows.getAll({ populate: true });
+    const groupIdToTabs = new Map();
+    let skippedUrlCount = 0;
+
+    for (const w of windows) {
+        const tabs = w.tabs || [];
+        for (const tab of tabs) {
+            if (tab.groupId == null || tab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) continue;
+            if (!isSyncableUrl(tab.url)) {
+                skippedUrlCount++;
+                continue;
+            }
+            const groupId = tab.groupId;
+            if (!groupIdToTabs.has(groupId)) {
+                groupIdToTabs.set(groupId, []);
+            }
+            groupIdToTabs.get(groupId).push({
+                url: tab.url,
+                pinned: !!tab.pinned
+            });
+        }
+    }
+
+    const groupIds = Array.from(groupIdToTabs.keys());
+    const groups = [];
+    let groupKeyCounter = 1;
+
+    // 先取元数据，再做排序，确保跨设备稳定
+    const metas = [];
+    for (const groupId of groupIds) {
+        try {
+            const meta = await chrome.tabGroups.get(groupId);
+            metas.push({ groupId, meta });
+        } catch (e) {
+            // 组已不存在，跳过
+        }
+    }
+
+    metas.sort((a, b) => {
+        const titleA = (a.meta.title || '未命名标签组');
+        const titleB = (b.meta.title || '未命名标签组');
+        const c = titleA.localeCompare(titleB);
+        if (c !== 0) return c;
+        return (a.groupId || 0) - (b.groupId || 0);
+    });
+
+    let totalTabCount = 0;
+
+    for (const item of metas) {
+        const groupId = item.groupId;
+        const meta = item.meta;
+        const tabs = groupIdToTabs.get(groupId) || [];
+        // 去重（同组内同 URL 只保留 1 个）
+        const seen = new Set();
+        const uniqueTabs = [];
+        for (const t of tabs) {
+            if (!t.url || seen.has(t.url)) continue;
+            seen.add(t.url);
+            uniqueTabs.push(t);
+        }
+        if (uniqueTabs.length === 0) continue;
+
+        groups.push({
+            groupKey: `g${groupKeyCounter++}`,
+            title: meta.title || '未命名标签组',
+            color: meta.color || 'blue',
+            collapsed: !!meta.collapsed,
+            tabs: uniqueTabs
+        });
+        totalTabCount += uniqueTabs.length;
+    }
+
+    const snapshot = {
+        v: 1,
+        capturedAt: Date.now(),
+        groups
+    };
+
+    return {
+        snapshot,
+        stats: {
+            groupCount: groups.length,
+            tabCount: totalTabCount,
+            skippedUrlCount
+        }
+    };
+}
+
+async function ensureGroupInWindow(windowId, group, existingGroups) {
+    const title = group.title || '未命名标签组';
+    const color = group.color || 'blue';
+
+    const match = existingGroups.find(g => (g.title || '未命名标签组') === title && (g.color || 'blue') === color);
+    if (match) {
+        try {
+            await chrome.tabGroups.update(match.id, { title, color, collapsed: !!group.collapsed });
+        } catch (e) {
+            // ignore
+        }
+        return { groupId: match.id, created: false };
+    }
+
+    // 创建新组：优先用“未分组”的已存在同 URL tab 作为种子，避免重复打开
+    let seedTabId = null;
+    const seed = (group.tabs && group.tabs.length > 0) ? group.tabs[0] : null;
+    if (seed && seed.url) {
+        const tabs = await chrome.tabs.query({ windowId });
+        const reusable = tabs.find(t => t.url === seed.url && t.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE);
+        if (reusable) {
+            seedTabId = reusable.id;
+        }
+    }
+
+    if (!seedTabId) {
+        if (!seed || !seed.url) {
+            throw new Error('无法创建分组：缺少种子标签页 URL');
+        }
+        const created = await chrome.tabs.create({ windowId, url: seed.url, active: false, pinned: !!seed.pinned });
+        seedTabId = created.id;
+    }
+
+    const groupId = await chrome.tabs.group({ tabIds: [seedTabId] });
+    await chrome.tabGroups.update(groupId, { title, color, collapsed: !!group.collapsed });
+    existingGroups.push({ id: groupId, title, color, collapsed: !!group.collapsed, windowId });
+    return { groupId, created: true };
+}
+
+async function restoreGroupedTabsSnapshotToCurrentWindow(snapshot) {
+    if (!snapshot || snapshot.v !== 1) {
+        throw new Error('快照格式不支持');
+    }
+    const groups = Array.isArray(snapshot.groups) ? snapshot.groups : [];
+    const currentWindow = await chrome.windows.getCurrent();
+    const windowId = currentWindow.id;
+    if (windowId == null) {
+        throw new Error('无法获取当前窗口');
+    }
+
+    let groupsCreated = 0;
+    let groupsReused = 0;
+    let tabsCreated = 0;
+    let tabsReused = 0;
+    let skippedUrlCount = 0;
+
+    let existingGroups = await chrome.tabGroups.query({ windowId });
+    let existingTabs = await chrome.tabs.query({ windowId });
+
+    function findTabByUrl(url) {
+        return existingTabs.find(t => t.url === url);
+    }
+
+    for (const group of groups) {
+        const groupTabs = Array.isArray(group.tabs) ? group.tabs : [];
+        const syncableTabs = groupTabs.filter(t => isSyncableUrl(t.url));
+        skippedUrlCount += (groupTabs.length - syncableTabs.length);
+        if (syncableTabs.length === 0) continue;
+
+        const ensured = await ensureGroupInWindow(windowId, { ...group, tabs: syncableTabs }, existingGroups);
+        if (ensured.created) groupsCreated++;
+        else groupsReused++;
+        const targetGroupId = ensured.groupId;
+
+        for (const t of syncableTabs) {
+            const url = t.url;
+            if (!url) continue;
+            let tab = findTabByUrl(url);
+            if (tab) {
+                tabsReused++;
+            } else {
+                tab = await chrome.tabs.create({ windowId, url, active: false, pinned: !!t.pinned });
+                existingTabs.push(tab);
+                tabsCreated++;
+            }
+
+            try {
+                if (tab.groupId !== targetGroupId) {
+                    await chrome.tabs.group({ tabIds: tab.id, groupId: targetGroupId });
+                    // groupId 可能变化，刷新本地缓存
+                    existingTabs = existingTabs.map(x => (x.id === tab.id ? { ...x, groupId: targetGroupId } : x));
+                }
+            } catch (e) {
+                console.error('将标签页加入同步分组失败:', e);
+            }
+
+            // pinned: 只在需要置顶时尝试置顶，避免打扰用户已置顶的 tab
+            if (t.pinned && !tab.pinned) {
+                try {
+                    await chrome.tabs.update(tab.id, { pinned: true });
+                    existingTabs = existingTabs.map(x => (x.id === tab.id ? { ...x, pinned: true } : x));
+                } catch (e) {
+                    console.error('置顶标签页失败:', e);
+                }
+            }
+        }
+    }
+
+    return {
+        windowId,
+        groupsCreated,
+        groupsReused,
+        tabsCreated,
+        tabsReused,
+        skippedUrlCount
+    };
+}
+
+async function handleSyncUploadGroupedTabs() {
+    const { baseUrl, passphrase } = await getSyncConfigOrThrow();
+    const deviceId = await getOrCreateSyncDeviceId();
+    const workspaceId = await sha256Hex(`tab-sync:${passphrase}`);
+
+    const { snapshot, stats } = await collectGroupedTabsSnapshot();
+    const snapshotWithMeta = {
+        ...snapshot,
+        deviceId
+    };
+    const encrypted = await encryptSnapshot(passphrase, snapshotWithMeta);
+
+    const payload = {
+        v: 1,
+        updatedAt: Date.now(),
+        deviceId,
+        kdfSalt: encrypted.kdfSaltBase64,
+        iv: encrypted.ivBase64,
+        ciphertext: encrypted.ciphertextBase64
+    };
+
+    const url = `${baseUrl}/v1/snapshot/${workspaceId}`;
+    const resp = await fetch(url, {
+        method: 'PUT',
+        headers: {
+            'content-type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    });
+
+    if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`上传失败: ${resp.status} ${text || resp.statusText}`);
+    }
+
+    return {
+        workspaceId,
+        ...stats
+    };
+}
+
+async function handleSyncPullRestoreGroupedTabs() {
+    const { baseUrl, passphrase } = await getSyncConfigOrThrow();
+    const workspaceId = await sha256Hex(`tab-sync:${passphrase}`);
+    const url = `${baseUrl}/v1/snapshot/${workspaceId}`;
+
+    const resp = await fetch(url, {
+        method: 'GET',
+        headers: {
+            'accept': 'application/json'
+        }
+    });
+    if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`拉取失败: ${resp.status} ${text || resp.statusText}`);
+    }
+
+    const payload = await resp.json();
+    if (!payload || payload.v !== 1 || !payload.iv || !payload.ciphertext) {
+        throw new Error('云端数据格式不正确');
+    }
+
+    const snapshot = await decryptSnapshot(passphrase, payload.iv, payload.ciphertext, payload.kdfSalt);
+    return restoreGroupedTabsSnapshotToCurrentWindow(snapshot);
+}
+
+function pickConfigForSync(storageObj) {
+    // 仅同步扩展配置，不同步敏感/设备相关字段
+    const allowList = [
+        'defaultGroupTitle',
+        'ignorePopup',
+        'urlRules',
+        'groupSortSettings',
+        'sortMethod',
+        'domainSortMaxLevel'
+    ];
+    const result = {};
+    for (const k of allowList) {
+        if (Object.prototype.hasOwnProperty.call(storageObj, k)) {
+            result[k] = storageObj[k];
+        }
+    }
+
+    // 不同步 defaultGroupId（跨设备不稳定），由 defaultGroupTitle 在本机解析
+    result.defaultGroupId = null;
+    return result;
+}
+
+async function handleSyncUploadConfig() {
+    const { baseUrl, passphrase } = await getSyncConfigOrThrow();
+    const deviceId = await getOrCreateSyncDeviceId();
+    const workspaceId = await sha256Hex(`tab-sync:${passphrase}`);
+
+    const all = await chrome.storage.local.get(null);
+    const config = pickConfigForSync(all);
+
+    const payloadPlain = {
+        v: 1,
+        updatedAt: Date.now(),
+        deviceId,
+        config
+    };
+    const encrypted = await encryptSnapshot(passphrase, payloadPlain);
+
+    const payload = {
+        v: 1,
+        updatedAt: payloadPlain.updatedAt,
+        deviceId,
+        kdfSalt: encrypted.kdfSaltBase64,
+        iv: encrypted.ivBase64,
+        ciphertext: encrypted.ciphertextBase64
+    };
+
+    const url = `${baseUrl}/v1/config/${workspaceId}`;
+    const resp = await fetch(url, {
+        method: 'PUT',
+        headers: {
+            'content-type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    });
+
+    if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`上传失败: ${resp.status} ${text || resp.statusText} (${url})`);
+    }
+
+    const rules = Array.isArray(config.urlRules) ? config.urlRules.length : 0;
+    const groups = config.groupSortSettings ? Object.keys(config.groupSortSettings).length : 0;
+    return {
+        workspaceId,
+        urlRuleCount: rules,
+        groupSortSettingCount: groups
+    };
+}
+
+async function handleSyncPullConfig() {
+    const { baseUrl, passphrase } = await getSyncConfigOrThrow();
+    const workspaceId = await sha256Hex(`tab-sync:${passphrase}`);
+    const url = `${baseUrl}/v1/config/${workspaceId}`;
+
+    const resp = await fetch(url, {
+        method: 'GET',
+        headers: {
+            'accept': 'application/json'
+        }
+    });
+    if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`拉取失败: ${resp.status} ${text || resp.statusText} (${url})`);
+    }
+
+    const payload = await resp.json();
+    if (!payload || payload.v !== 1 || !payload.iv || !payload.ciphertext) {
+        throw new Error('云端数据格式不正确');
+    }
+
+    const decrypted = await decryptSnapshot(passphrase, payload.iv, payload.ciphertext, payload.kdfSalt);
+    if (!decrypted || decrypted.v !== 1 || !decrypted.config) {
+        throw new Error('解密后的配置数据格式不正确');
+    }
+
+    // Replace semantics: 覆盖这些 key（仅 allowList），其他本机数据不动（例如 syncWorkerBaseUrl/syncPassphrase）
+    const config = pickConfigForSync(decrypted.config);
+    await chrome.storage.local.set(config);
+
+    const rules = Array.isArray(config.urlRules) ? config.urlRules.length : 0;
+    const groups = config.groupSortSettings ? Object.keys(config.groupSortSettings).length : 0;
+    return {
+        urlRuleCount: rules,
+        groupSortSettingCount: groups
+    };
 }

@@ -114,6 +114,15 @@
             box-sizing: border-box;
         }
 
+        input[type="password"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+
         input[type="color"] {
             width: 100%;
             height: 40px;
@@ -247,6 +256,32 @@
             <button id="applyRulesButton" style="background: #4CAF50;">应用规则到所有标签页</button>
             <button id="exportButton" style="background: #FF9800; margin-top: 10px;">导出配置</button>
             <button id="importButton" style="background: #FF9800; margin-top: 10px;">导入配置</button>
+        </div>
+
+        <div class="card">
+            <h3>公网同步（手动）</h3>
+            <div style="font-size: 13px; color: #666; margin-bottom: 12px;">
+                该功能会将“已分组”的标签页信息加密后上传到你自己的 Cloudflare Worker（服务端只存密文）。
+            </div>
+            <div>
+                <label for="syncWorkerBaseUrl" style="display: block; margin-bottom: 8px; font-size: 14px; color: #444;">Worker 地址（Base URL）：</label>
+                <input type="text" id="syncWorkerBaseUrl" placeholder="https://tab.p-pp.xyz">
+                <div style="font-size: 12px; color: #666; margin: 6px 0 10px; line-height: 1.5;">
+                    默认值为 <b>https://tab.p-pp.xyz</b>（可改为你自己的 Worker 域名）。
+                    同步数据在本机用口令加密后上传，服务端仅保存密文；但服务端仍可看到访问时间/IP/请求大小等元数据。
+                    为防止弱口令被离线猜解，建议使用 16+ 位强口令（本地使用 PBKDF2 派生密钥，并为每次上传生成随机 salt）。
+                </div>
+
+                <label for="syncPassphrase" style="display: block; margin: 10px 0 8px; font-size: 14px; color: #444;">同步口令（本机保存）：</label>
+                <input type="password" id="syncPassphrase" placeholder="建议 16+ 位，包含字母和数字">
+
+                <div class="checkbox-container" style="margin-top: 10px;">
+                    <input type="checkbox" id="syncShowPassphrase">
+                    <label for="syncShowPassphrase">显示口令</label>
+                </div>
+
+                <button id="saveSyncSettingsButton" style="margin-top: 10px;">保存同步设置</button>
+            </div>
         </div>
 
     </div>

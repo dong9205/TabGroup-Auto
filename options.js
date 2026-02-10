@@ -10,15 +10,32 @@ const rulesList = document.getElementById('rulesList');
 const newGroupTitle = document.getElementById('newGroupTitle');
 const newGroupColor = document.getElementById('newGroupColor');
 
+// Sync DOM
+const syncWorkerBaseUrlEl = document.getElementById('syncWorkerBaseUrl');
+const syncPassphraseEl = document.getElementById('syncPassphrase');
+const syncShowPassphraseEl = document.getElementById('syncShowPassphrase');
+
 // 初始化页面
 async function initializePage() {
     await loadGroups();
     await loadSettings();
     await loadRules();
+    await loadSyncSettings();
 
     // 添加导入导出按钮事件监听
     document.getElementById('exportButton').addEventListener('click', exportConfig);
     document.getElementById('importButton').addEventListener('click', importConfig);
+
+    const saveSyncSettingsButton = document.getElementById('saveSyncSettingsButton');
+    if (saveSyncSettingsButton) {
+        saveSyncSettingsButton.addEventListener('click', saveSyncSettings);
+    }
+
+    if (syncShowPassphraseEl && syncPassphraseEl) {
+        syncShowPassphraseEl.addEventListener('change', () => {
+            syncPassphraseEl.type = syncShowPassphraseEl.checked ? 'text' : 'password';
+        });
+    }
 }
 
 // 加载所有标签组
@@ -351,7 +368,8 @@ async function deleteRule(index) {
 
 // 导出配置
 async function exportConfig() {
-    const config = await chrome.storage.local.get(['defaultGroupId', 'defaultGroupTitle', 'ignorePopup', 'urlRules', 'groupSortSettings', 'sortMethod', 'domainSortMaxLevel']);
+    // NOTE: 不导出 syncPassphrase（敏感信息）。Worker URL 可导出，便于迁移。
+    const config = await chrome.storage.local.get(['defaultGroupId', 'defaultGroupTitle', 'ignorePopup', 'urlRules', 'groupSortSettings', 'sortMethod', 'domainSortMaxLevel', 'syncWorkerBaseUrl']);
     const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
 
@@ -379,6 +397,10 @@ async function importConfig() {
             reader.onload = async (event) => {
                 try {
                     const config = JSON.parse(event.target.result);
+                    // 安全起见：忽略导入文件里的 syncPassphrase
+                    if (config && Object.prototype.hasOwnProperty.call(config, 'syncPassphrase')) {
+                        delete config.syncPassphrase;
+                    }
                     await chrome.storage.local.set(config);
                     await initializePage();
                     showNotification('配置导入成功');
@@ -393,6 +415,31 @@ async function importConfig() {
     };
 
     input.click();
+}
+
+async function loadSyncSettings() {
+    if (!syncWorkerBaseUrlEl || !syncPassphraseEl) return;
+    const { syncWorkerBaseUrl = '', syncPassphrase = '' } = await chrome.storage.local.get(['syncWorkerBaseUrl', 'syncPassphrase']);
+    syncWorkerBaseUrlEl.value = syncWorkerBaseUrl || 'https://tab.p-pp.xyz';
+    syncPassphraseEl.value = syncPassphrase;
+}
+
+async function saveSyncSettings() {
+    if (!syncWorkerBaseUrlEl || !syncPassphraseEl) return;
+    let syncWorkerBaseUrl = (syncWorkerBaseUrlEl.value || '').trim();
+    const syncPassphrase = (syncPassphraseEl.value || '').trim();
+
+    if (syncWorkerBaseUrl.endsWith('/')) {
+        syncWorkerBaseUrl = syncWorkerBaseUrl.slice(0, -1);
+    }
+
+    if (syncWorkerBaseUrl && !/^https?:\/\//i.test(syncWorkerBaseUrl)) {
+        showNotification('Worker 地址必须以 http:// 或 https:// 开头', 'error');
+        return;
+    }
+
+    await chrome.storage.local.set({ syncWorkerBaseUrl, syncPassphrase });
+    showNotification('同步设置已保存');
 }
 
 // 根据 rule.groupId 或 rule.groupTitle 解析出当前有效的标签组 ID（重启后仍有效）

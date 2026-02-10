@@ -11,6 +11,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const createGroupButton = document.getElementById('createGroupButton');
   const applyRulesButton = document.getElementById('applyRulesButton');
 
+  // Sync UI
+  const syncUploadButton = document.getElementById('syncUploadButton');
+  const syncPullRestoreButton = document.getElementById('syncPullRestoreButton');
+  const syncUploadConfigButton = document.getElementById('syncUploadConfigButton');
+  const syncPullConfigButton = document.getElementById('syncPullConfigButton');
+  const syncStatus = document.getElementById('syncStatus');
+
   // 获取所有标签组
   let tabs = await chrome.tabs.query({});
   let groups = await chrome.tabGroups.query({});
@@ -517,6 +524,103 @@ document.addEventListener('DOMContentLoaded', async () => {
           sortTabsButton.textContent = '一键排序所有标签页';
         }, 2000);
       }
+    });
+  }
+
+  function setSyncStatus(text, isError = false) {
+    if (!syncStatus) return;
+    syncStatus.textContent = text || '';
+    syncStatus.style.color = isError ? '#dc3545' : '#555';
+  }
+
+  async function withSyncButtonsDisabled(fn) {
+    if (syncUploadButton) syncUploadButton.disabled = true;
+    if (syncPullRestoreButton) syncPullRestoreButton.disabled = true;
+    if (syncUploadConfigButton) syncUploadConfigButton.disabled = true;
+    if (syncPullConfigButton) syncPullConfigButton.disabled = true;
+    try {
+      await fn();
+    } finally {
+      if (syncUploadButton) syncUploadButton.disabled = false;
+      if (syncPullRestoreButton) syncPullRestoreButton.disabled = false;
+      if (syncUploadConfigButton) syncUploadConfigButton.disabled = false;
+      if (syncPullConfigButton) syncPullConfigButton.disabled = false;
+    }
+  }
+
+  if (syncUploadButton) {
+    syncUploadButton.addEventListener('click', async () => {
+      await withSyncButtonsDisabled(async () => {
+        try {
+          setSyncStatus('上传中...');
+          const resp = await chrome.runtime.sendMessage({ action: 'syncUploadGroupedTabs' });
+          if (!resp || !resp.success) {
+            throw new Error(resp?.error || '上传失败');
+          }
+          const r = resp.result || {};
+          setSyncStatus(`上传完成：${r.groupCount || 0} 个分组，${r.tabCount || 0} 个标签（跳过 ${r.skippedUrlCount || 0} 个非 http(s) URL）`);
+        } catch (error) {
+          console.error('同步上传失败:', error);
+          setSyncStatus(error.message || '上传失败', true);
+        }
+      });
+    });
+  }
+
+  if (syncPullRestoreButton) {
+    syncPullRestoreButton.addEventListener('click', async () => {
+      await withSyncButtonsDisabled(async () => {
+        try {
+          setSyncStatus('拉取并复原中...');
+          const resp = await chrome.runtime.sendMessage({ action: 'syncPullRestoreGroupedTabs' });
+          if (!resp || !resp.success) {
+            throw new Error(resp?.error || '拉取失败');
+          }
+          const r = resp.result || {};
+          setSyncStatus(`复原完成：新建分组 ${r.groupsCreated || 0}，复用分组 ${r.groupsReused || 0}；新建标签 ${r.tabsCreated || 0}，复用标签 ${r.tabsReused || 0}（跳过 ${r.skippedUrlCount || 0} 个非 http(s) URL）`);
+        } catch (error) {
+          console.error('同步拉取失败:', error);
+          setSyncStatus(error.message || '拉取失败', true);
+        }
+      });
+    });
+  }
+
+  if (syncUploadConfigButton) {
+    syncUploadConfigButton.addEventListener('click', async () => {
+      await withSyncButtonsDisabled(async () => {
+        try {
+          setSyncStatus('配置上传中...');
+          const resp = await chrome.runtime.sendMessage({ action: 'syncUploadConfig' });
+          if (!resp || !resp.success) {
+            throw new Error(resp?.error || '配置上传失败');
+          }
+          const r = resp.result || {};
+          setSyncStatus(`配置上传完成：URL 规则 ${r.urlRuleCount || 0} 条，分组排序配置 ${r.groupSortSettingCount || 0} 项`);
+        } catch (error) {
+          console.error('配置同步上传失败:', error);
+          setSyncStatus(error.message || '配置上传失败', true);
+        }
+      });
+    });
+  }
+
+  if (syncPullConfigButton) {
+    syncPullConfigButton.addEventListener('click', async () => {
+      await withSyncButtonsDisabled(async () => {
+        try {
+          setSyncStatus('配置拉取并应用中...');
+          const resp = await chrome.runtime.sendMessage({ action: 'syncPullConfig' });
+          if (!resp || !resp.success) {
+            throw new Error(resp?.error || '配置拉取失败');
+          }
+          const r = resp.result || {};
+          setSyncStatus(`配置已应用：URL 规则 ${r.urlRuleCount || 0} 条，分组排序配置 ${r.groupSortSettingCount || 0} 项（如需刷新选项页/弹窗，请重新打开）`);
+        } catch (error) {
+          console.error('配置同步拉取失败:', error);
+          setSyncStatus(error.message || '配置拉取失败', true);
+        }
+      });
     });
   }
 });

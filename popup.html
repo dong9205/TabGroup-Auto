@@ -143,6 +143,21 @@
         <h3>标签页排序</h3>
         <button id="sortTabsButton" style="background: #9334e6; margin-top: 0;">一键排序所有标签页</button>
     </div>
+
+    <div class="card">
+        <h3>公网同步（手动）</h3>
+        <div style="font-size: 13px; color: #666; margin-bottom: 12px; line-height: 1.5;">
+            仅同步“已分组”的标签页。上传到你自己的 Worker（服务端只存密文）。
+        </div>
+        <button id="syncUploadButton" style="background: #0f766e; margin-top: 0;">上传所有标签组</button>
+        <button id="syncPullRestoreButton" style="background: #0ea5e9; margin-top: 10px;">拉取并复原到当前窗口</button>
+
+        <div style="height: 1px; background: #eee; margin: 12px 0;"></div>
+
+        <button id="syncUploadConfigButton" style="background: #6b7280; margin-top: 0;">上传扩展配置</button>
+        <button id="syncPullConfigButton" style="background: #64748b; margin-top: 10px;">拉取并应用配置</button>
+        <div id="syncStatus" style="margin-top: 10px; font-size: 12px; color: #555;"></div>
+    </div>
     <script src="popup.js"></script>
 </body>
 
