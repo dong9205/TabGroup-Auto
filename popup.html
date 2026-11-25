@@ -145,13 +145,23 @@
     </div>
 
     <div class="card">
-        <h3>公网同步（手动）</h3>
+        <h3>跨浏览器同步（手动）</h3>
         <div style="font-size: 13px; color: #666; margin-bottom: 12px; line-height: 1.5;">
-            仅同步“已分组”的标签页。上传到你自己的 Worker（服务端只存密文）。
+            在选项页配置 FNS、Vault 和同步口令。配置与各设备的收藏栏快照共用一个 Vault。
         </div>
+        <div id="legacySyncControls" hidden>
         <button id="syncUploadButton" style="background: #0f766e; margin-top: 0;">上传所有标签组</button>
         <button id="syncPullRestoreButton" style="background: #0ea5e9; margin-top: 10px;">拉取并复原到当前窗口</button>
 
+        </div>
+        <div id="fnsSyncControls" hidden>
+            <button id="syncUploadBookmarksButton" style="background: #0f766e; margin-top: 0;">上传本机收藏栏</button>
+            <button id="syncListDevicesButton" style="margin-top: 10px;">刷新云端设备</button>
+            <select id="syncDeviceSelect" style="margin-top: 10px; margin-bottom: 0;" aria-label="选择云端设备"><option value="">先刷新云端设备</option></select>
+            <button id="syncMergeBookmarksButton" style="background: #0ea5e9; margin-top: 10px;">拉取并合并到本机收藏栏</button>
+            <p style="font-size: 12px; color: #666;">同步收藏栏及子文件夹中的 HTTP(S) 收藏。按名称和网址合并，保留本地收藏及现有顺序，不删除或覆盖。</p>
+        </div>
+        <button id="openSyncOptionsButton" style="background: #6b7280; margin-top: 10px;">打开同步设置</button>
         <div style="height: 1px; background: #eee; margin: 12px 0;"></div>
 
         <button id="syncUploadConfigButton" style="background: #6b7280; margin-top: 0;">上传扩展配置</button>
@@ -159,6 +169,7 @@
         <div id="syncStatus" style="margin-top: 10px; font-size: 12px; color: #555;"></div>
     </div>
     <script src="popup.js"></script>
+    <script src="sync-popup.js"></script>
 </body>
 
 </html>

@@ -1,3 +1,5 @@
+importScripts('fns-sync.js');
+
 // 从URL提取域名
 function getDomain(url) {
     try {
@@ -923,6 +925,7 @@ function pickConfigForSync(storageObj) {
 }
 
 async function handleSyncUploadConfig() {
+    if (await isFnsSyncSelected()) return uploadFnsConfig();
     const { baseUrl, passphrase } = await getSyncConfigOrThrow();
     const deviceId = await getOrCreateSyncDeviceId();
     const workspaceId = await sha256Hex(`tab-sync:${passphrase}`);
@@ -971,6 +974,7 @@ async function handleSyncUploadConfig() {
 }
 
 async function handleSyncPullConfig() {
+    if (await isFnsSyncSelected()) return pullFnsConfig();
     const { baseUrl, passphrase } = await getSyncConfigOrThrow();
     const workspaceId = await sha256Hex(`tab-sync:${passphrase}`);
     const url = `${baseUrl}/v1/config/${workspaceId}`;

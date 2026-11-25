@@ -1,6 +1,6 @@
 # AGENTS.md — TabGroup Auto
 
-This repo is a **vanilla Chrome Extension (Manifest V3)** with no build system, linting, tests, or package manager configs.
+This repo is a **vanilla Chrome Extension (Manifest V3)** with no build system, linting, or package manager configs.
 All files are plain HTML/CSS/JS. Keep changes small and consistent with existing style.
 
 ---
@@ -9,14 +9,14 @@ All files are plain HTML/CSS/JS. Keep changes small and consistent with existing
 
 **No build system**
 - There is no `package.json`, no bundler, no transpiler.
-- No lint or test tooling is configured.
+- No lint tooling is configured. Sync regression checks use the built-in Node.js test runner.
 
 **Manual verification (recommended)**
 - Load the extension via `chrome://extensions` → **Load unpacked** → select repo root.
 - Test behaviors in a real Chrome session (create tabs/groups, open popup/options pages).
 
 **Single test**
-- There is no test framework or test runner in this repo.
+- Run `node --test tests/fns-sync.test.cjs` for simulated FNS API/encryption/restore checks; verify the real extension in Edge.
 
 ---
 
@@ -28,6 +28,8 @@ All files are plain HTML/CSS/JS. Keep changes small and consistent with existing
 
 ### File Layout
 - `background.js`: service worker logic for tab grouping.
+- `fns-sync.js`: encrypted FNS config and per-device bookmarks bar snapshots.
+- `sync-popup.js`: FNS bookmarks upload, device selection, and merge UI.
 - `popup.html` / `popup.js`: popup UI and logic.
 - `options.html` / `options.js` / `options.css`: options page UI and logic.
 - `manifest.json`: extension metadata and permissions.

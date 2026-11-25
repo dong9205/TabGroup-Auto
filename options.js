@@ -259,10 +259,11 @@ function updateRulesList(rules) {
     // 按标签组ID对规则进行分组
     const rulesByGroup = {};
     rules.forEach(rule => {
-        if (!rulesByGroup[rule.groupId]) {
-            rulesByGroup[rule.groupId] = [];
+        const groupId = resolveRuleGroupId(rule);
+        if (!rulesByGroup[groupId]) {
+            rulesByGroup[groupId] = [];
         }
-        rulesByGroup[rule.groupId].push(rule);
+        rulesByGroup[groupId].push(rule);
     });
 
     // 遍历每个标签组
@@ -295,12 +296,12 @@ function updateRulesList(rules) {
 
     // 处理未知标签组的规则
     const unknownGroupRules = rules.filter(rule =>
-        !currentGroups.some(group => group.id === parseInt(rule.groupId)));
+        resolveRuleGroupId(rule) == null);
 
     if (unknownGroupRules.length > 0) {
         const unknownTitle = document.createElement('div');
         unknownTitle.className = 'group-title';
-        unknownTitle.textContent = '未知标签组';
+        unknownTitle.textContent = '待创建的标签组（匹配规则时按同步的组名创建）';
         rulesList.appendChild(unknownTitle);
 
         unknownGroupRules.forEach((rule, index) => {
@@ -397,10 +398,8 @@ async function importConfig() {
             reader.onload = async (event) => {
                 try {
                     const config = JSON.parse(event.target.result);
-                    // 安全起见：忽略导入文件里的 syncPassphrase
-                    if (config && Object.prototype.hasOwnProperty.call(config, 'syncPassphrase')) {
-                        delete config.syncPassphrase;
-                    }
+                    // 凭据和设备标识只能在本机设置，不从配置文件导入。
+                    for (const key of ['syncPassphrase', 'syncFnsToken', 'syncDeviceId']) delete config[key];
                     await chrome.storage.local.set(config);
                     await initializePage();
                     showNotification('配置导入成功');
@@ -417,29 +416,56 @@ async function importConfig() {
     input.click();
 }
 
+function updateSyncBackendFields() {
+    const isFns = document.getElementById('syncBackend').value === 'fns';
+    document.getElementById('fnsSettings').hidden = !isFns;
+    document.getElementById('cloudflareSettings').hidden = isFns;
+}
+
 async function loadSyncSettings() {
-    if (!syncWorkerBaseUrlEl || !syncPassphraseEl) return;
-    const { syncWorkerBaseUrl = '', syncPassphrase = '' } = await chrome.storage.local.get(['syncWorkerBaseUrl', 'syncPassphrase']);
-    syncWorkerBaseUrlEl.value = syncWorkerBaseUrl || 'https://tab.p-pp.xyz';
-    syncPassphraseEl.value = syncPassphrase;
+    const settings = await chrome.storage.local.get(['syncBackend', 'syncWorkerBaseUrl', 'syncPassphrase', 'syncFnsBaseUrl', 'syncFnsToken', 'syncFnsVault', 'syncDeviceName']);
+    syncWorkerBaseUrlEl.value = settings.syncWorkerBaseUrl || 'https://tab.p-pp.xyz';
+    syncPassphraseEl.value = settings.syncPassphrase || '';
+    document.getElementById('syncBackend').value = settings.syncBackend || (settings.syncWorkerBaseUrl || settings.syncPassphrase ? 'cloudflare' : 'fns');
+    for (const key of ['syncFnsBaseUrl', 'syncFnsToken', 'syncFnsVault', 'syncDeviceName']) {
+        document.getElementById(key).value = settings[key] || '';
+    }
+    document.getElementById('syncBackend').onchange = updateSyncBackendFields;
+    updateSyncBackendFields();
 }
 
 async function saveSyncSettings() {
-    if (!syncWorkerBaseUrlEl || !syncPassphraseEl) return;
-    let syncWorkerBaseUrl = (syncWorkerBaseUrlEl.value || '').trim();
-    const syncPassphrase = (syncPassphraseEl.value || '').trim();
-
-    if (syncWorkerBaseUrl.endsWith('/')) {
-        syncWorkerBaseUrl = syncWorkerBaseUrl.slice(0, -1);
+    const settings = {
+        syncBackend: document.getElementById('syncBackend').value,
+        syncWorkerBaseUrl: syncWorkerBaseUrlEl.value.trim().replace(/\/+$/, ''),
+        syncPassphrase: syncPassphraseEl.value.trim()
+    };
+    for (const key of ['syncFnsBaseUrl', 'syncFnsToken', 'syncFnsVault', 'syncDeviceName']) {
+        settings[key] = document.getElementById(key).value.trim();
     }
-
-    if (syncWorkerBaseUrl && !/^https?:\/\//i.test(syncWorkerBaseUrl)) {
-        showNotification('Worker 地址必须以 http:// 或 https:// 开头', 'error');
+    if (settings.syncBackend === 'fns') {
+        try {
+            const url = new URL(settings.syncFnsBaseUrl);
+            if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) throw new Error('invalid');
+        } catch (error) {
+            showNotification('请填写有效的 HTTPS 服务地址（不包含账号、查询参数或片段）', 'error');
+            return;
+        }
+        if (!settings.syncFnsToken || !settings.syncFnsVault || !settings.syncPassphrase) {
+            showNotification('请填写 FNS Token、Vault 名称和同步口令', 'error');
+            return;
+        }
+    } else if (settings.syncWorkerBaseUrl && !/^https:\/\//i.test(settings.syncWorkerBaseUrl)) {
+        showNotification('Worker 地址必须以 https:// 开头', 'error');
         return;
     }
-
-    await chrome.storage.local.set({ syncWorkerBaseUrl, syncPassphrase });
-    showNotification('同步设置已保存');
+    try {
+        await chrome.storage.local.set(settings);
+        showNotification('同步设置已保存');
+    } catch (error) {
+        console.error('保存同步设置失败:', error);
+        showNotification('保存同步设置失败', 'error');
+    }
 }
 
 // 根据 rule.groupId 或 rule.groupTitle 解析出当前有效的标签组 ID（重启后仍有效）

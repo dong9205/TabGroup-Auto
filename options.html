@@ -259,19 +259,30 @@
         </div>
 
         <div class="card">
-            <h3>公网同步（手动）</h3>
-            <div style="font-size: 13px; color: #666; margin-bottom: 12px;">
-                该功能会将“已分组”的标签页信息加密后上传到你自己的 Cloudflare Worker（服务端只存密文）。
-            </div>
+            <h3>同步设置</h3>
+            <p style="font-size: 13px; color: #666;">FNS 将扩展配置和各设备的收藏栏快照保存在同一个 Vault，内容使用同步口令加密。</p>
             <div>
-                <label for="syncWorkerBaseUrl" style="display: block; margin-bottom: 8px; font-size: 14px; color: #444;">Worker 地址（Base URL）：</label>
-                <input type="text" id="syncWorkerBaseUrl" placeholder="https://tab.p-pp.xyz">
-                <div style="font-size: 12px; color: #666; margin: 6px 0 10px; line-height: 1.5;">
-                    默认值为 <b>https://tab.p-pp.xyz</b>（可改为你自己的 Worker 域名）。
-                    同步数据在本机用口令加密后上传，服务端仅保存密文；但服务端仍可看到访问时间/IP/请求大小等元数据。
-                    为防止弱口令被离线猜解，建议使用 16+ 位强口令（本地使用 PBKDF2 派生密钥，并为每次上传生成随机 salt）。
+                <label for="syncBackend">同步后端：</label>
+                <select id="syncBackend">
+                    <option value="fns">Fast Note Sync Service</option>
+                    <option value="cloudflare">Cloudflare Worker（旧版）</option>
+                </select>
+                <div id="fnsSettings">
+                    <label for="syncFnsBaseUrl">FNS 服务地址（HTTPS，可包含 /api）：</label>
+                    <input type="text" id="syncFnsBaseUrl" placeholder="https://notes.example.com">
+                    <label for="syncFnsToken">FNS API Token（仅本机保存）：</label>
+                    <input type="password" id="syncFnsToken" autocomplete="off">
+                    <label for="syncFnsVault">Vault 名称（需已创建）：</label>
+                    <input type="text" id="syncFnsVault" placeholder="browser-sync">
+                    <label for="syncDeviceName">本机名称：</label>
+                    <input type="text" id="syncDeviceName" placeholder="Mac · Edge">
+                    <p style="font-size: 12px; color: #666;">Token 需允许 REST 笔记读写及此 Vault，客户端标识为 tabgroup-auto。各设备使用相同 Vault 和同步口令。Token 不会上传到笔记。</p>
                 </div>
-
+                <div id="cloudflareSettings" hidden>
+                    <label for="syncWorkerBaseUrl">Worker 地址（Base URL）：</label>
+                    <input type="text" id="syncWorkerBaseUrl" placeholder="https://tab.p-pp.xyz">
+                    <p style="font-size: 12px; color: #666;">旧版仅同步已分组标签页，恢复到当前窗口。</p>
+                </div>
                 <label for="syncPassphrase" style="display: block; margin: 10px 0 8px; font-size: 14px; color: #444;">同步口令（本机保存）：</label>
                 <input type="password" id="syncPassphrase" placeholder="建议 16+ 位，包含字母和数字">
 
